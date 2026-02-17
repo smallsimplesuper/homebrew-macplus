@@ -14,7 +14,18 @@ cask "macplus" do
 
   depends_on macos: ">= :ventura"
 
+  # App is not notarized; remove quarantine flag after install to prevent Gatekeeper block
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-cr", "#{appdir}/macPlus.app"]
+  end
+
   app "macPlus.app"
+
+  caveats <<~EOS
+    macPlus is not notarized. If macOS Gatekeeper blocks it, run:
+      xattr -cr /Applications/macPlus.app
+  EOS
 
   zap trash: [
     "~/Library/Application Support/com.macplus.app",

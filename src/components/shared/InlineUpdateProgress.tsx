@@ -14,7 +14,7 @@ interface InlineUpdateProgressProps {
   totalBytes?: number | null;
 }
 
-function useCrawlingPercent(percent: number, phase?: string, hasRealBytes?: boolean) {
+export function useCrawlingPercent(percent: number, phase?: string, hasRealBytes?: boolean) {
   const [displayPercent, setDisplayPercent] = useState(percent);
   const lastPercent = useRef(percent);
 

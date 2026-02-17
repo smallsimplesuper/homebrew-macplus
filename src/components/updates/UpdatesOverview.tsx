@@ -8,15 +8,17 @@ import {
   ExternalLink,
   FileText,
   FolderSearch,
+  Loader2,
   RefreshCw,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
 import { AppIcon } from "@/components/app-list/AppIcon";
-import { InlineUpdateProgress, RelaunchButton } from "@/components/shared/InlineUpdateProgress";
+import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUpdateProgress";
 import { useApps, useFullScan } from "@/hooks/useApps";
 import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
 import { useExecuteBulkUpdate, useExecuteUpdate } from "@/hooks/useUpdateExecution";
+import { formatDownloadProgress } from "@/lib/format-bytes";
 import { getUpdateHistory } from "@/lib/tauri-commands";
 import { isDelegatedUpdate } from "@/lib/update-utils";
 import { cn } from "@/lib/utils";
@@ -66,98 +68,162 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
 
   const hasChangelog = app.releaseNotes != null || app.releaseNotesUrl != null;
 
+  // Smooth crawling percent — called unconditionally per hook rules
+  const downloadedBytes = progress?.downloadedBytes ?? 0;
+  const totalBytes = progress?.totalBytes ?? null;
+  const hasRealBytes = downloadedBytes > 0;
+  const effectivePercent =
+    hasRealBytes && totalBytes != null && totalBytes > 0
+      ? (downloadedBytes / totalBytes) * 100
+      : (progress?.percent ?? 0);
+  const displayPercent = useCrawlingPercent(effectivePercent, progress?.phase, hasRealBytes);
+  const byteLabel = hasRealBytes ? formatDownloadProgress(downloadedBytes, totalBytes) : null;
+
+  // Auto-close changelog when progress starts
+  useEffect(() => {
+    if (progress) setChangelogOpen(false);
+  }, [progress]);
+
   return (
     <div className="rounded-lg border border-border bg-card">
-      <div
-        className={cn(
-          "grid min-h-[44px] items-center px-3",
-          "grid-cols-[28px_1fr_auto] gap-2.5",
-          "transition-colors hover:bg-accent/30 rounded-lg",
-        )}
-      >
-        {/* App icon */}
-        <AppIcon
-          iconPath={app.iconCachePath}
-          appPath={app.appPath}
-          displayName={app.displayName}
-          bundleId={app.bundleId}
-          size={28}
-        />
-
-        {/* Name + version inline */}
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-medium leading-tight">{app.displayName}</span>
-          {progress ? (
-            <InlineUpdateProgress
-              phase={progress.phase}
-              percent={progress.percent}
-              variant="compact"
-              downloadedBytes={progress.downloadedBytes}
-              totalBytes={progress.totalBytes}
-            />
-          ) : (
-            <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
-              <span className="text-muted-foreground">{app.installedVersion ?? "Unknown"}</span>
-              <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
-              <span className="font-semibold text-success">{app.availableVersion}</span>
+      <AnimatePresence mode="wait" initial={false}>
+        {progress ? (
+          <motion.div
+            key="progress"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="px-3 py-1.5"
+          >
+            {/* Row 1: icon + name + version + spinner/percent */}
+            <div className="flex items-center gap-2">
+              <AppIcon
+                iconPath={app.iconCachePath}
+                appPath={app.appPath}
+                displayName={app.displayName}
+                bundleId={app.bundleId}
+                size={22}
+              />
+              <span className="truncate text-xs font-medium leading-tight">{app.displayName}</span>
+              <div className="flex shrink-0 items-center gap-1 text-caption leading-tight">
+                <span className="text-muted-foreground">{app.installedVersion ?? "?"}</span>
+                <ArrowRight className="size-2 shrink-0 text-muted-foreground/50" />
+                <span className="text-muted-foreground">{app.availableVersion}</span>
+              </div>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                <span className="text-caption tabular-nums text-muted-foreground">
+                  {Math.round(displayPercent)}%
+                </span>
+              </div>
             </div>
-          )}
-        </div>
-
-        {/* Right side: changelog toggle + action button */}
-        <div className="flex items-center gap-1.5">
-          {/* Changelog toggle */}
-          {hasChangelog && !progress && (
-            <button
-              type="button"
-              onClick={() => setChangelogOpen((v) => !v)}
-              className={cn(
-                "flex shrink-0 items-center justify-center rounded-md",
-                "h-7 w-7 text-muted-foreground",
-                "transition-colors hover:bg-muted hover:text-foreground",
-                changelogOpen && "bg-muted text-foreground",
-              )}
-              title="Release notes"
-            >
-              <FileText className="h-3.5 w-3.5" />
-            </button>
-          )}
-
-          {/* Action button */}
-          {relaunch ? (
-            <RelaunchButton
-              bundleId={relaunch.bundleId}
-              appPath={relaunch.appPath}
-              variant="compact"
+            {/* Row 2: full-width progress bar + phase/bytes */}
+            <div className="mt-1.5">
+              <div className="h-[3px] w-full overflow-hidden rounded-full bg-muted">
+                <motion.div
+                  className="h-full rounded-full bg-primary"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${displayPercent}%` }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                />
+              </div>
+              <div className="mt-0.5 flex items-center justify-between">
+                <span className="truncate text-caption text-muted-foreground">
+                  {progress.phase}
+                </span>
+                {byteLabel && (
+                  <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
+                    {byteLabel}
+                  </span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="normal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className={cn(
+              "grid min-h-[44px] items-center px-3",
+              "grid-cols-[28px_1fr_auto] gap-2.5",
+              "transition-colors hover:bg-accent/30 rounded-lg",
+            )}
+          >
+            {/* App icon */}
+            <AppIcon
+              iconPath={app.iconCachePath}
+              appPath={app.appPath}
+              displayName={app.displayName}
+              bundleId={app.bundleId}
+              size={28}
             />
-          ) : !progress ? (
-            <button
-              type="button"
-              onClick={() => onUpdate(app.bundleId)}
-              disabled={!!progress}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-md",
-                "bg-primary px-2.5 py-1.5",
-                "text-xs font-medium text-primary-foreground",
-                "transition-colors hover:bg-primary/90",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
+
+            {/* Name + version inline */}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate text-sm font-medium leading-tight">{app.displayName}</span>
+              <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
+                <span className="text-muted-foreground">{app.installedVersion ?? "Unknown"}</span>
+                <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+                <span className="font-semibold text-success">{app.availableVersion}</span>
+              </div>
+            </div>
+
+            {/* Right side: changelog toggle + action button */}
+            <div className="flex items-center gap-1.5">
+              {hasChangelog && (
+                <button
+                  type="button"
+                  onClick={() => setChangelogOpen((v) => !v)}
+                  className={cn(
+                    "flex shrink-0 items-center justify-center rounded-md",
+                    "h-7 w-7 text-muted-foreground",
+                    "transition-colors hover:bg-muted hover:text-foreground",
+                    changelogOpen && "bg-muted text-foreground",
+                  )}
+                  title="Release notes"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                </button>
               )}
-            >
-              {isDelegatedUpdate(app) ? (
-                <>
-                  <ExternalLink className="h-3 w-3" />
-                  Open Updater
-                </>
+
+              {relaunch ? (
+                <RelaunchButton
+                  bundleId={relaunch.bundleId}
+                  appPath={relaunch.appPath}
+                  variant="compact"
+                />
               ) : (
-                <>
-                  <Download className="h-3 w-3" />
-                  Update
-                </>
+                <button
+                  type="button"
+                  onClick={() => onUpdate(app.bundleId)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-md",
+                    "bg-primary px-2.5 py-1.5",
+                    "text-xs font-medium text-primary-foreground",
+                    "transition-colors hover:bg-primary/90",
+                  )}
+                >
+                  {isDelegatedUpdate(app) ? (
+                    <>
+                      <ExternalLink className="h-3 w-3" />
+                      Open Updater
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3 w-3" />
+                      Update
+                    </>
+                  )}
+                </button>
               )}
-            </button>
-          ) : null}
-        </div>
-      </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Expandable changelog */}
       <AnimatePresence>

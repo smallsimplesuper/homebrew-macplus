@@ -36,7 +36,7 @@ export function SelfUpdateBanner() {
     if (info.canBrewUpgrade) {
       openTerminalWithCommand("brew upgrade --cask macplus").catch(console.error);
     } else {
-      const url = info.releaseNotesUrl ?? `https://github.com/mardenmnt/macPlus/releases/latest`;
+      const url = info.releaseNotesUrl ?? `https://github.com/smallsimplesuper/homebrew-macplus/releases/latest`;
       open(url).catch(console.error);
     }
   };
