@@ -1,11 +1,11 @@
 cask "macplus" do
-  version "0.2.26"
+  version "0.2.27"
   sha256 :no_check
 
-  url "https://github.com/smallsimplesuper/macplus/releases/download/v#{version}/macPlus_#{version}_universal.dmg"
+  url "https://github.com/smallsimplesuper/homebrew-macplus/releases/download/v#{version}/macPlus_#{version}_universal.dmg"
   name "macPlus"
   desc "Fast, native macOS app update manager"
-  homepage "https://github.com/smallsimplesuper/macplus"
+  homepage "https://github.com/smallsimplesuper/homebrew-macplus"
 
   livecheck do
     url :url

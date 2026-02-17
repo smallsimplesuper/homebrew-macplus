@@ -6,8 +6,8 @@ use crate::updaters::version_compare;
 use crate::utils::brew::brew_path;
 use crate::utils::AppError;
 
-const SELF_REPO_OWNER: &str = "mardenmnt";
-const SELF_REPO_NAME: &str = "macPlus";
+const SELF_REPO_OWNER: &str = "smallsimplesuper";
+const SELF_REPO_NAME: &str = "homebrew-macplus";
 const SELF_BUNDLE_ID: &str = "com.macplus.app";
 
 #[derive(Debug, Clone, Serialize)]

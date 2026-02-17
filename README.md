@@ -14,11 +14,11 @@ A fast, native macOS app update manager.
 ## Installation
 
 ```bash
-brew tap smallsimplesuper/macplus https://github.com/smallsimplesuper/macplus.git
+brew tap smallsimplesuper/macplus
 brew install --cask macplus
 ```
 
-Or download the latest `.dmg` from [Releases](https://github.com/smallsimplesuper/macplus/releases).
+Or download the latest `.dmg` from [Releases](https://github.com/smallsimplesuper/homebrew-macplus/releases).
 
 ## System Requirements
 
