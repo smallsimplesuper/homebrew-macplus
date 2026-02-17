@@ -29,6 +29,8 @@ jobs:
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Update cask formula
         run: |
