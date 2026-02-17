@@ -1,0 +1,18 @@
+#!/bin/bash
+# macPlus askpass helper — invoked by sudo when SUDO_ASKPASS is set and no TTY
+# is available. Shows a native macOS password dialog via osascript.
+#
+# Usage: SUDO_ASKPASS=/path/to/macplus-askpass sudo -A <command>
+
+PASSWORD=$(/usr/bin/osascript -e '
+tell application "System Events"
+    set pw to text returned of (display dialog "macPlus needs administrator access to install this update." with title "macPlus" default answer "" with hidden answer buttons {"Cancel", "OK"} default button "OK")
+end tell
+pw
+' 2>/dev/null)
+
+if [ $? -ne 0 ] || [ -z "$PASSWORD" ]; then
+    exit 1
+fi
+
+echo "$PASSWORD"

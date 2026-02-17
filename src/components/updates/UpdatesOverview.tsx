@@ -1,0 +1,466 @@
+import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowRight,
+  CheckCircle,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  FileText,
+  FolderSearch,
+  RefreshCw,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
+import { AppIcon } from "@/components/app-list/AppIcon";
+import { InlineUpdateProgress, RelaunchButton } from "@/components/shared/InlineUpdateProgress";
+import { useApps, useFullScan } from "@/hooks/useApps";
+import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
+import { useExecuteBulkUpdate, useExecuteUpdate } from "@/hooks/useUpdateExecution";
+import { getUpdateHistory } from "@/lib/tauri-commands";
+import { isDelegatedUpdate } from "@/lib/update-utils";
+import { cn } from "@/lib/utils";
+import { useUpdateProgressStore } from "@/stores/updateProgressStore";
+import type { AppSummary } from "@/types/app";
+
+// --- Categorization ---
+
+type UpdateCategory = "desktop_apps" | "browser_extensions" | "homebrew_cli";
+
+const BROWSER_PATTERNS = [
+  /^com\.google\.Chrome\.app\./,
+  /^com\.brave\.Browser\.app\./,
+  /^com\.microsoft\.Edge\.app\./,
+  /^org\.chromium\.Chromium\.app\./,
+];
+
+function categorizeApp(app: AppSummary): UpdateCategory {
+  if (BROWSER_PATTERNS.some((p) => p.test(app.bundleId))) return "browser_extensions";
+  if (app.installSource === "homebrew_formula" || app.bundleId.startsWith("homebrew.formula."))
+    return "homebrew_cli";
+  // CLI-only casks: installed via homebrew, have synthetic bundle ID, no .app path
+  if (app.bundleId.startsWith("homebrew.cask.") && !app.appPath) return "homebrew_cli";
+  return "desktop_apps";
+}
+
+function getBrowserName(bundleId: string): string | null {
+  if (bundleId.startsWith("com.google.Chrome")) return "Chrome";
+  if (bundleId.startsWith("com.brave.Browser")) return "Brave";
+  if (bundleId.startsWith("com.microsoft.Edge")) return "Edge";
+  if (bundleId.startsWith("org.chromium.Chromium")) return "Chromium";
+  return null;
+}
+
+const CATEGORY_LABELS: Record<UpdateCategory, string> = {
+  desktop_apps: "Desktop Apps",
+  browser_extensions: "Browser Extensions",
+  homebrew_cli: "Homebrew & CLI",
+};
+
+// --- Update Card ---
+
+function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: string) => void }) {
+  const progress = useUpdateProgressStore((s) => s.progress[app.bundleId]);
+  const relaunch = useUpdateProgressStore((s) => s.relaunchNeeded[app.bundleId]);
+  const [changelogOpen, setChangelogOpen] = useState(false);
+
+  const hasChangelog = app.releaseNotes != null || app.releaseNotesUrl != null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <div
+        className={cn(
+          "grid min-h-[44px] items-center px-3",
+          "grid-cols-[28px_1fr_auto] gap-2.5",
+          "transition-colors hover:bg-accent/30 rounded-lg",
+        )}
+      >
+        {/* App icon */}
+        <AppIcon
+          iconPath={app.iconCachePath}
+          appPath={app.appPath}
+          displayName={app.displayName}
+          bundleId={app.bundleId}
+          size={28}
+        />
+
+        {/* Name + version inline */}
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-tight">{app.displayName}</span>
+          {progress ? (
+            <InlineUpdateProgress
+              phase={progress.phase}
+              percent={progress.percent}
+              variant="compact"
+              downloadedBytes={progress.downloadedBytes}
+              totalBytes={progress.totalBytes}
+            />
+          ) : (
+            <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
+              <span className="text-muted-foreground">{app.installedVersion ?? "Unknown"}</span>
+              <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+              <span className="font-semibold text-success">{app.availableVersion}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Right side: changelog toggle + action button */}
+        <div className="flex items-center gap-1.5">
+          {/* Changelog toggle */}
+          {hasChangelog && !progress && (
+            <button
+              type="button"
+              onClick={() => setChangelogOpen((v) => !v)}
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md",
+                "h-7 w-7 text-muted-foreground",
+                "transition-colors hover:bg-muted hover:text-foreground",
+                changelogOpen && "bg-muted text-foreground",
+              )}
+              title="Release notes"
+            >
+              <FileText className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {/* Action button */}
+          {relaunch ? (
+            <RelaunchButton
+              bundleId={relaunch.bundleId}
+              appPath={relaunch.appPath}
+              variant="compact"
+            />
+          ) : !progress ? (
+            <button
+              type="button"
+              onClick={() => onUpdate(app.bundleId)}
+              disabled={!!progress}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-md",
+                "bg-primary px-2.5 py-1.5",
+                "text-xs font-medium text-primary-foreground",
+                "transition-colors hover:bg-primary/90",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              {isDelegatedUpdate(app) ? (
+                <>
+                  <ExternalLink className="h-3 w-3" />
+                  Open Updater
+                </>
+              ) : (
+                <>
+                  <Download className="h-3 w-3" />
+                  Update
+                </>
+              )}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Expandable changelog */}
+      <AnimatePresence>
+        {changelogOpen && hasChangelog && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border px-3 pb-3 pt-2">
+              <ReleaseNotesContent
+                releaseNotes={app.releaseNotes}
+                releaseNotesUrl={app.releaseNotesUrl}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// --- Recently Updated ---
+
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const date = new Date(`${dateStr}Z`);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMin / 60);
+
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
+
+function RecentlyUpdated() {
+  const { data: entries } = useQuery({
+    queryKey: ["update-history-recent"],
+    queryFn: () => getUpdateHistory(20),
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const [clearedAt, setClearedAt] = useState<string | null>(
+    () => localStorage.getItem("macplus-recently-cleared-at") || null,
+  );
+
+  const handleClear = () => {
+    const now = new Date().toISOString();
+    localStorage.setItem("macplus-recently-cleared-at", now);
+    setClearedAt(now);
+  };
+
+  const recent = useMemo(() => {
+    if (!entries) return [];
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const clearedAtMs = clearedAt ? new Date(clearedAt).getTime() : 0;
+    const seen = new Set<string>();
+    return entries
+      .filter((e) => e.status === "completed")
+      .filter((e) => {
+        const ts = e.startedAt ? new Date(`${e.startedAt}Z`).getTime() : 0;
+        return ts > sevenDaysAgo && ts > clearedAtMs;
+      })
+      .filter((e) => e.fromVersion !== e.toVersion)
+      .filter((e) => {
+        if (seen.has(e.bundleId)) return false;
+        seen.add(e.bundleId);
+        return true;
+      });
+  }, [entries, clearedAt]);
+
+  if (recent.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Recently Updated
+        </h2>
+        <button
+          type="button"
+          onClick={handleClear}
+          className="text-caption text-muted-foreground/50 hover:text-muted-foreground"
+        >
+          Clear
+        </button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {recent.map((entry) => (
+          <div
+            key={entry.id}
+            className="grid min-h-[44px] items-center rounded-lg border border-border bg-card px-3 grid-cols-[28px_1fr_auto] gap-2.5"
+          >
+            <AppIcon
+              iconPath={entry.iconCachePath}
+              displayName={entry.displayName}
+              bundleId={entry.bundleId}
+              size={28}
+            />
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate text-sm font-medium leading-tight">
+                {entry.displayName}
+              </span>
+              <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
+                <span className="text-muted-foreground">{entry.fromVersion}</span>
+                <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+                <span className="text-muted-foreground">{entry.toVersion}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-caption text-muted-foreground/50">
+                {formatRelativeTime(entry.completedAt ?? entry.startedAt)}
+              </span>
+              <CheckCircle2 className="h-3.5 w-3.5 text-success/60" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- Main Component ---
+
+export function UpdatesOverview() {
+  const { data: apps, isLoading } = useApps();
+  const checkAll = useCheckAllUpdates();
+  const fullScan = useFullScan();
+  const executeUpdate = useExecuteUpdate();
+  const executeBulk = useExecuteBulkUpdate();
+  const hasAnyProgress = useUpdateProgressStore((s) => Object.keys(s.progress).length > 0);
+
+  const updatableApps = apps?.filter((app) => app.hasUpdate && !app.isIgnored) ?? [];
+  const updateCount = updatableApps.length;
+
+  const categorized = useMemo(() => {
+    const groups: Record<UpdateCategory, AppSummary[]> = {
+      desktop_apps: [],
+      browser_extensions: [],
+      homebrew_cli: [],
+    };
+
+    for (const app of updatableApps) {
+      const cat = categorizeApp(app);
+      groups[cat].push(app);
+    }
+
+    // Sort each category A-Z
+    for (const cat of Object.keys(groups) as UpdateCategory[]) {
+      groups[cat].sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }
+
+    return groups;
+  }, [updatableApps]);
+
+  // Determine if we need category headers (more than one category has items)
+  const nonEmptyCategories = (Object.keys(categorized) as UpdateCategory[]).filter(
+    (cat) => categorized[cat].length > 0,
+  );
+  const showCategories = nonEmptyCategories.length > 1;
+
+  const handleCheckNow = () => checkAll.mutate();
+
+  const handleScanSystem = () => {
+    fullScan.mutate(undefined, {
+      onSuccess: () => checkAll.mutate(),
+    });
+  };
+
+  const handleUpdateAll = () => {
+    const ids = updatableApps.map((app) => app.bundleId);
+    if (ids.length > 0) {
+      executeBulk.mutate(ids);
+    }
+  };
+
+  const handleUpdateSingle = (bundleId: string) => {
+    executeUpdate.mutate(bundleId);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const renderCategoryLabel = (cat: UpdateCategory): string => {
+    if (cat === "browser_extensions") {
+      // Extract browser name from first app in category
+      const firstApp = categorized[cat][0];
+      const browser = firstApp ? getBrowserName(firstApp.bundleId) : null;
+      return browser
+        ? `Browser Extensions \u2014 ${browser} (${categorized[cat].length})`
+        : `Browser Extensions (${categorized[cat].length})`;
+    }
+    return `${CATEGORY_LABELS[cat]} (${categorized[cat].length})`;
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-title text-foreground">
+          {updateCount > 0
+            ? `${updateCount} Update${updateCount === 1 ? "" : "s"} Available`
+            : "Updates"}
+        </h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleScanSystem}
+            disabled={fullScan.isPending || checkAll.isPending}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg",
+              "border border-border bg-background px-3 py-1.5",
+              "text-xs font-medium text-foreground",
+              "transition-colors hover:bg-muted",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+            )}
+          >
+            <FolderSearch className={cn("h-3.5 w-3.5", fullScan.isPending && "animate-pulse")} />
+            Scan System
+          </button>
+          <button
+            type="button"
+            onClick={handleCheckNow}
+            disabled={checkAll.isPending || fullScan.isPending}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg",
+              "border border-border bg-background px-3 py-1.5",
+              "text-xs font-medium text-foreground",
+              "transition-colors hover:bg-muted",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+            )}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", checkAll.isPending && "animate-spin")} />
+            Check Now
+          </button>
+          {updateCount > 0 && (
+            <button
+              type="button"
+              onClick={handleUpdateAll}
+              disabled={executeBulk.isPending || hasAnyProgress}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg",
+                "bg-primary px-3 py-1.5",
+                "text-xs font-medium text-primary-foreground",
+                "transition-colors hover:bg-primary/90",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Update All
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Update list or empty state */}
+      {updateCount === 0 ? (
+        <div className="flex flex-col items-center gap-3 py-16">
+          <CheckCircle className="h-12 w-12 text-success/60" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">All apps are up to date!</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              macPlus will notify you when updates become available.
+            </p>
+          </div>
+        </div>
+      ) : showCategories ? (
+        <div className="flex flex-col gap-4">
+          {nonEmptyCategories.map((cat) => (
+            <div key={cat}>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {renderCategoryLabel(cat)}
+              </h2>
+              <div className="flex flex-col gap-2">
+                {categorized[cat].map((app) => (
+                  <UpdateCard key={app.bundleId} app={app} onUpdate={handleUpdateSingle} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {[...updatableApps]
+            .sort((a, b) => a.displayName.localeCompare(b.displayName))
+            .map((app) => (
+              <UpdateCard key={app.bundleId} app={app} onUpdate={handleUpdateSingle} />
+            ))}
+        </div>
+      )}
+
+      {/* Recently Updated */}
+      <RecentlyUpdated />
+    </div>
+  );
+}

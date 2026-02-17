@@ -1,0 +1,46 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-cask:
+    runs-on: ubuntu-latest
+    if: "!github.event.release.prerelease && !github.event.release.draft"
+    permissions:
+      contents: write
+    steps:
+      - name: Get release info
+        id: release
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMG and compute SHA256
+        id: sha
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          DMG_URL="https://github.com/smallsimplesuper/macplus/releases/download/${{ steps.release.outputs.tag }}/macPlus_${VERSION}_universal.dmg"
+          curl -L --fail --output macplus.dmg "${DMG_URL}"
+          SHA256=$(shasum -a 256 macplus.dmg | awk '{ print $1 }')
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+
+      - name: Update cask formula
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
+          sed -i "s/^  version \".*\"/  version \"${VERSION}\"/" Casks/macplus.rb
+          sed -i "s/^  sha256 .*/  sha256 \"${SHA256}\"/" Casks/macplus.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/macplus.rb
+          git diff --cached --exit-code || git commit -m "chore: update cask to v${{ steps.release.outputs.version }}"
+          git push

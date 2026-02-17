@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "macPlus",
+  "version": "0.2.26",
+  "identifier": "com.macplus.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "macPlus",
+        "hiddenTitle": true,
+        "decorations": false,
+        "transparent": true,
+        "width": 640,
+        "height": 640,
+        "resizable": false
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["$APPCACHE/icons/**"]
+        }
+      },
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost; connect-src 'self' https://formulae.brew.sh https://itunes.apple.com https://api.github.com https://*.github.com https://*.githubusercontent.com"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "resources": ["resources/*", "icons/tray-icon.png", "icons/tray-icon-update.png"],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "frameworks": [],
+      "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
+  }
+}

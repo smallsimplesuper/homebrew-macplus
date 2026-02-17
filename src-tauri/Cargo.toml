@@ -1,0 +1,47 @@
+[package]
+name = "macplus"
+version = "0.2.26"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png", "protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-store = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+window-vibrancy = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.13", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
+plist = "1"
+feed-rs = "2"
+semver = "1"
+notify = { version = "8", features = ["macos_fsevent"] }
+async-trait = "0.1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+log = "0.4"
+env_logger = "0.11"
+quick-xml = "0.39"
+futures = "0.3"
+url = "2"
+dirs = "6.0.0"
+tempfile = "3"
+regex = "1"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
