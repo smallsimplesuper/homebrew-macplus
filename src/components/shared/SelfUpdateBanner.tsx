@@ -1,12 +1,13 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
 import { motion } from "framer-motion";
-import { ArrowUpCircle, ExternalLink, Loader2, X } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { formatDownloadProgress } from "@/lib/format-bytes";
 import {
   checkSelfUpdate,
   executeSelfUpdate,
+  relaunchSelf,
   type SelfUpdateInfo,
   type SelfUpdateProgress,
 } from "@/lib/tauri-commands";
@@ -19,6 +20,8 @@ export function SelfUpdateBanner() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [progress, setProgress] = useState<SelfUpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updateComplete, setUpdateComplete] = useState(false);
+  const [isRelaunching, setIsRelaunching] = useState(false);
 
   useEffect(() => {
     checkSelfUpdate()
@@ -36,9 +39,16 @@ export function SelfUpdateBanner() {
       setProgress(event.payload);
     });
 
+    const unlistenComplete = listen<{ success: boolean }>("self-update-complete", (event) => {
+      if (event.payload.success) {
+        setUpdateComplete(true);
+      }
+    });
+
     return () => {
       unlistenAvailable.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
+      unlistenComplete.then((fn) => fn());
     };
   }, []);
 
@@ -93,6 +103,40 @@ export function SelfUpdateBanner() {
         >
           <X className="h-3.5 w-3.5" />
         </button>
+      </div>
+    );
+  }
+
+  if (updateComplete) {
+    const handleRelaunch = () => {
+      setIsRelaunching(true);
+      relaunchSelf().catch(() => setIsRelaunching(false));
+    };
+
+    return (
+      <div className="flex items-center gap-3 border-b border-green-500/20 bg-green-500/5 px-4 py-2.5">
+        {isRelaunching ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-green-600 dark:text-green-400" />
+        ) : (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+        )}
+        <p className="flex-1 text-xs text-green-700 dark:text-green-300">
+          {isRelaunching ? "Restarting macPlus..." : "Update installed — restart to apply"}
+        </p>
+        {!isRelaunching && (
+          <button
+            type="button"
+            onClick={handleRelaunch}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2.5 py-1",
+              "bg-green-500/10 text-xs font-medium text-green-700 dark:text-green-300",
+              "transition-colors hover:bg-green-500/20",
+            )}
+          >
+            <RefreshCw className="h-3 w-3" />
+            Restart Now
+          </button>
+        )}
       </div>
     );
   }

@@ -355,12 +355,36 @@ pub async fn execute_self_update(
     // Clean up temp dir
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
-    emit_progress(&app_handle, "Relaunching macPlus...", 95, None, None);
+    emit_progress(
+        &app_handle,
+        "Update installed — restart to apply",
+        100,
+        None,
+        None,
+    );
+    let _ = app_handle.emit(
+        "self-update-complete",
+        serde_json::json!({ "success": true, "appPath": app_path_str }),
+    );
 
-    // 8. Write tiny relaunch script and spawn detached
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn relaunch_self(app_handle: AppHandle) -> Result<(), AppError> {
+    let exe = std::env::current_exe()
+        .map_err(|e| AppError::CommandFailed(format!("Failed to find current executable: {}", e)))?;
+    let app_bundle = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .ok_or_else(|| AppError::CommandFailed("Failed to resolve .app bundle path".to_string()))?;
+    let app_path_str = app_bundle.to_string_lossy().to_string();
+    let pid = std::process::id();
+
     let script_path = format!("/tmp/macplus-relaunch-{}.sh", pid);
     let script_content = format!(
-        "#!/bin/bash\nsleep 1\nopen '{}'\nrm -f \"$0\"\n",
+        "#!/bin/bash\nsleep 2\nopen '{}'\nrm -f \"$0\"\n",
         app_path_str
     );
     std::fs::write(&script_path, &script_content)
@@ -389,7 +413,6 @@ pub async fn execute_self_update(
     cmd.spawn()
         .map_err(|e| AppError::CommandFailed(format!("Failed to spawn relaunch script: {}", e)))?;
 
-    // 9. Exit old process — the script relaunches
     tokio::time::sleep(Duration::from_millis(200)).await;
     app_handle.exit(0);
 

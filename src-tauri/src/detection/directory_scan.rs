@@ -63,22 +63,18 @@ fn scan_directory_recursive(dir: &Path, current_depth: u32, max_depth: u32) -> V
 }
 
 /// Discover app directories on mounted volumes.
-/// Always checks `/Volumes/*/Applications/` and also scans volume roots
-/// (so apps in custom folders are found via scan_depth).
+/// Only checks `/Volumes/*/Applications/` — never volume roots, because
+/// `/Volumes/Macintosh HD` symlinks to `/` and scanning that triggers
+/// TCC permission dialogs for ~/Desktop, ~/Documents, etc.
 fn discover_volume_app_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let volumes = PathBuf::from("/Volumes");
     if let Ok(entries) = fs::read_dir(&volumes) {
         for entry in entries.flatten() {
             let vol_path = entry.path();
-            // Always check /Volumes/X/Applications/
             let apps_dir = vol_path.join("Applications");
             if apps_dir.is_dir() {
                 dirs.push(apps_dir);
-            }
-            // Also scan the volume root itself (catches custom folders via scan_depth)
-            if vol_path.is_dir() {
-                dirs.push(vol_path);
             }
         }
     }

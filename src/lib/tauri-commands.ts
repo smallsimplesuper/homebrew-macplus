@@ -137,6 +137,10 @@ export async function executeSelfUpdate(downloadUrl: string): Promise<void> {
   return invoke("execute_self_update", { downloadUrl });
 }
 
+export async function relaunchSelf(): Promise<void> {
+  return invoke("relaunch_self");
+}
+
 export interface ConnectivityStatus {
   github: boolean;
   homebrew: boolean;
