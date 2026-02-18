@@ -91,7 +91,7 @@ pub async fn run_full_scan(
         let _ = app_handle.emit(
             "scan-progress",
             ScanProgress {
-                phase: "Extracting icons".to_string(),
+                phase: "Finalising apps".to_string(),
                 current: 6,
                 total: 6,
                 app_name: None,
@@ -467,6 +467,7 @@ pub async fn run_update_check(
     ).await;
 
     // Check for macPlus self-update and emit event if available
+    crate::updaters::github_releases::reset_rate_limit_flag();
     if let Some(info) = crate::commands::self_update::check_self_update_inner(http_client).await {
         let _ = app_handle.emit("self-update-available", &info);
     }
@@ -576,7 +577,10 @@ pub async fn run_update_check(
         if settings.notification_sound {
             builder = builder.sound("Glass");
         }
-        let _ = builder.show();
+        match builder.show() {
+            Ok(_) => log::info!("Sent native notification: {} updates", found_this_cycle),
+            Err(e) => log::warn!("Failed to send notification: {}", e),
+        }
     }
 
     // Update tray tooltip, icon, and menu item with update count

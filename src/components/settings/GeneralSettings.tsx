@@ -1,4 +1,4 @@
-import { disable, enable } from "@tauri-apps/plugin-autostart";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { ChevronRight } from "lucide-react";
 import { CustomSelect } from "@/components/shared/CustomSelect";
 import { ToggleSwitch } from "@/components/shared/ToggleSwitch";
@@ -46,7 +46,15 @@ export function GeneralSettings() {
           checked={settings.launchAtLogin}
           onChange={(checked) => {
             handleUpdate({ launchAtLogin: checked });
-            (checked ? enable() : disable()).catch(console.error);
+            if (checked) {
+              isEnabled()
+                .then((alreadyOn) => {
+                  if (!alreadyOn) enable();
+                })
+                .catch(console.error);
+            } else {
+              disable().catch(console.error);
+            }
           }}
         />
       </div>

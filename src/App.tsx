@@ -2,7 +2,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import { Toaster } from "sonner";
@@ -74,8 +76,28 @@ function DesktopApp() {
   useEffect(() => {
     if (!settings || hasSetAutostart.current) return;
     hasSetAutostart.current = true;
-    (settings.launchAtLogin ? enableAutostart() : disableAutostart()).catch(console.error);
+    isAutostartEnabled()
+      .then((enabled) => {
+        if (settings.launchAtLogin && !enabled) {
+          enableAutostart().catch(console.error);
+        } else if (!settings.launchAtLogin && enabled) {
+          disableAutostart().catch(console.error);
+        }
+      })
+      .catch(console.error);
   }, [settings]);
+
+  // Request notification permission on first launch
+  const hasRequestedNotif = useRef(false);
+  useEffect(() => {
+    if (hasRequestedNotif.current) return;
+    hasRequestedNotif.current = true;
+    isPermissionGranted()
+      .then((granted) => {
+        if (!granted) requestPermission().catch(console.error);
+      })
+      .catch(console.error);
+  }, []);
 
   const renderContent = () => {
     switch (filterView) {
