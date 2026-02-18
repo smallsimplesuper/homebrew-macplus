@@ -1,57 +1,111 @@
-import { AlertTriangle, Beer, ExternalLink, ShieldAlert, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Beer, Bell, ExternalLink, ShieldAlert, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { checkSetupStatus, openSystemPreferences } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 import { useAppFilterStore } from "@/stores/appFilterStore";
 
-type BannerKind = "appManagement" | "automation" | "homebrew" | null;
+type BannerKind = "appManagement" | "automation" | "notifications" | "homebrew";
 
-const V2_KEY = "macplus-permission-banner-dismissed-v2";
-const V1_KEY = "macplus-permission-banner-dismissed";
+interface BannerConfig {
+  kind: BannerKind;
+  icon: React.ReactNode;
+  message: string;
+  pane?: string;
+  isSetupLink?: boolean;
+}
+
+const DISMISS_KEY = "macplus-permission-banner-dismissed-v3";
 
 function loadDismissedKinds(): Set<string> {
-  const v2 = localStorage.getItem(V2_KEY);
-  if (v2) {
+  const raw = localStorage.getItem(DISMISS_KEY);
+  if (raw) {
     try {
-      return new Set(JSON.parse(v2));
+      return new Set(JSON.parse(raw));
     } catch {
       return new Set();
     }
   }
-  // Migrate from v1 boolean key
-  if (localStorage.getItem(V1_KEY) === "true") {
-    const migrated = new Set(["homebrew", "automation"]);
-    localStorage.setItem(V2_KEY, JSON.stringify([...migrated]));
-    return migrated;
-  }
   return new Set();
+}
+
+function saveDismissedKinds(kinds: Set<string>) {
+  localStorage.setItem(DISMISS_KEY, JSON.stringify([...kinds]));
 }
 
 export function PermissionBanner() {
   const [dismissedKinds, setDismissedKinds] = useState<Set<string>>(loadDismissedKinds);
-  const [bannerKind, setBannerKind] = useState<BannerKind>(null);
+  const [missingBanners, setMissingBanners] = useState<BannerConfig[]>([]);
   const setFilterView = useAppFilterStore((s) => s.setFilterView);
 
-  useEffect(() => {
+  const checkPermissions = useCallback(() => {
     checkSetupStatus()
       .then((status) => {
+        const banners: BannerConfig[] = [];
         if (!status.permissions.appManagement) {
-          setBannerKind("appManagement");
-        } else if (!status.permissions.automation) {
-          setBannerKind("automation");
-        } else if (!status.homebrewInstalled) {
-          setBannerKind("homebrew");
+          banners.push({
+            kind: "appManagement",
+            icon: <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />,
+            message:
+              "App Management permission required to install and update apps in /Applications.",
+            pane: "app_management",
+          });
+        }
+        if (!status.permissions.automation) {
+          banners.push({
+            kind: "automation",
+            icon: <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />,
+            message: "Automation permission required to quit apps before updating.",
+            pane: "automation",
+          });
+        }
+        if (!status.permissions.notifications) {
+          banners.push({
+            kind: "notifications",
+            icon: <Bell className="h-4 w-4 shrink-0 text-warning" />,
+            message: "Notification permission required for background update alerts.",
+            pane: "notifications",
+          });
+        }
+        if (!status.homebrewInstalled) {
+          banners.push({
+            kind: "homebrew",
+            icon: <Beer className="h-4 w-4 shrink-0 text-warning" />,
+            message: "Homebrew is not installed. Some CLI tool updates may require it.",
+            isSetupLink: true,
+          });
+        }
+        setMissingBanners(banners);
+
+        // Clear dismissed state for permissions that are now granted
+        const currentMissing = new Set(banners.map((b) => b.kind));
+        const next = new Set(dismissedKinds);
+        let changed = false;
+        for (const kind of dismissedKinds) {
+          if (!currentMissing.has(kind as BannerKind)) {
+            next.delete(kind);
+            changed = true;
+          }
+        }
+        if (changed) {
+          saveDismissedKinds(next);
+          setDismissedKinds(next);
         }
       })
       .catch(() => {});
-  }, []);
+  }, [dismissedKinds]);
 
-  if (!bannerKind || dismissedKinds.has(bannerKind)) return null;
+  useEffect(() => {
+    checkPermissions();
+    // Re-check on window focus (user may have just granted permission)
+    const onFocus = () => checkPermissions();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [checkPermissions]);
 
-  const dismiss = () => {
+  const dismiss = (kind: BannerKind) => {
     const next = new Set(dismissedKinds);
-    next.add(bannerKind);
-    localStorage.setItem(V2_KEY, JSON.stringify([...next]));
+    next.add(kind);
+    saveDismissedKinds(next);
     setDismissedKinds(next);
   };
 
@@ -62,67 +116,56 @@ export function PermissionBanner() {
     }, 50);
   };
 
-  const icon =
-    bannerKind === "appManagement" ? (
-      <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
-    ) : bannerKind === "homebrew" ? (
-      <Beer className="h-4 w-4 shrink-0 text-warning" />
-    ) : (
-      <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-    );
-
-  const message =
-    bannerKind === "appManagement"
-      ? "App Management permission required to install and update apps in /Applications."
-      : bannerKind === "automation"
-        ? "Automation permission required to quit apps before updating."
-        : "Homebrew is not installed. Some CLI tool updates may require it.";
-
-  const action =
-    bannerKind === "homebrew" ? (
-      <button
-        type="button"
-        onClick={openSetup}
-        className={cn(
-          "flex items-center gap-1 rounded-md px-2.5 py-1",
-          "bg-warning/10 text-xs font-medium text-warning",
-          "transition-colors hover:bg-warning/20",
-        )}
-      >
-        <ExternalLink className="h-3 w-3" />
-        Open Setup
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={() =>
-          openSystemPreferences(bannerKind === "appManagement" ? "app_management" : "automation")
-        }
-        className={cn(
-          "flex items-center gap-1 rounded-md px-2.5 py-1",
-          "bg-warning/10 text-xs font-medium text-warning",
-          "transition-colors hover:bg-warning/20",
-        )}
-      >
-        <ExternalLink className="h-3 w-3" />
-        Open System Settings
-      </button>
-    );
+  const visible = missingBanners.filter((b) => !dismissedKinds.has(b.kind));
+  if (visible.length === 0) return null;
 
   return (
-    <div
-      className={cn("flex items-center gap-3 border-b border-warning/20 bg-warning/5 px-4 py-2.5")}
-    >
-      {icon}
-      <p className="flex-1 text-xs text-warning">{message}</p>
-      {action}
-      <button
-        type="button"
-        onClick={dismiss}
-        className="rounded-md p-1 text-warning/60 transition-colors hover:text-warning"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+    <div className="divide-y divide-warning/10">
+      {visible.map((banner) => (
+        <div
+          key={banner.kind}
+          className={cn(
+            "flex items-center gap-3 border-b border-warning/20 bg-warning/5 px-4 py-2",
+          )}
+        >
+          {banner.icon}
+          <p className="flex-1 text-xs text-warning">{banner.message}</p>
+          {banner.isSetupLink ? (
+            <button
+              type="button"
+              onClick={openSetup}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1",
+                "bg-warning/10 text-xs font-medium text-warning",
+                "transition-colors hover:bg-warning/20",
+              )}
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open Setup
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openSystemPreferences(banner.pane!)}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1",
+                "bg-warning/10 text-xs font-medium text-warning",
+                "transition-colors hover:bg-warning/20",
+              )}
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open System Settings
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => dismiss(banner.kind)}
+            className="rounded-md p-1 text-warning/60 transition-colors hover:text-warning"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

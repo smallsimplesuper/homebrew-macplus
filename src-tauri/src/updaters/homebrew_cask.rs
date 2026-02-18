@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use super::{BrewOutdatedCask, BrewOutdatedFormula, UpdateChecker};
+use super::{version_compare, BrewOutdatedCask, BrewOutdatedFormula, UpdateChecker};
 use crate::models::{AppSource, UpdateInfo, UpdateSourceType};
 use crate::utils::brew::brew_path;
 use crate::utils::AppResult;
@@ -130,10 +130,11 @@ pub fn fetch_brew_outdated() -> HashMap<String, BrewOutdatedCask> {
             None => continue,
         };
 
-        let current_version = c.get("current_version")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
+        let current_version = version_compare::strip_brew_version_token(
+            c.get("current_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+        ).to_string();
 
         // Handle installed_versions as array of strings gracefully
         let installed_versions = c.get("installed_versions")

@@ -106,10 +106,11 @@ fn build_index(json: &[serde_json::Value]) -> HomebrewCaskIndex {
             Some(t) => t,
             None => continue,
         };
-        let version = match cask.get("version").and_then(|v| v.as_str()) {
+        let raw_version = match cask.get("version").and_then(|v| v.as_str()) {
             Some(v) => v,
             None => continue,
         };
+        let version = version_compare::strip_brew_version_token(raw_version);
 
         let url = cask.get("url").and_then(|v| v.as_str()).map(String::from);
         let sha256 = cask.get("sha256").and_then(|v| v.as_str()).map(String::from);

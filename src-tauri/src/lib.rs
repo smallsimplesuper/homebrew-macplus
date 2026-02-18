@@ -275,13 +275,24 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building macPlus")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
-                if !has_visible_windows {
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    // Prevent Cmd+Q from quitting — hide to tray instead.
+                    // The tray menu "Quit macPlus" uses app.exit(0) which bypasses this.
+                    api.prevent_exit();
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        let _ = window.hide();
                     }
                 }
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                _ => {}
             }
         });
 }

@@ -434,13 +434,15 @@ pub async fn run_update_check(
         }
 
         // Step 2: Purge updates where available_version now matches the (freshly updated)
-        // installed_version. This handles apps updated externally (MAS, direct download).
+        // installed_version. Also matches comma-containing Homebrew versions where the
+        // numeric prefix equals the installed version (e.g. "1.1.3363,abc..." == "1.1.3363").
         let purged = db_guard.conn.execute(
             "DELETE FROM available_updates WHERE id IN (
                 SELECT au.id FROM available_updates au
                 JOIN apps a ON a.id = au.app_id
-                WHERE au.available_version = a.installed_version
-                  AND au.dismissed_at IS NULL
+                WHERE au.dismissed_at IS NULL
+                  AND (au.available_version = a.installed_version
+                       OR (au.available_version LIKE a.installed_version || ',%'))
             )",
             [],
         ).unwrap_or(0);

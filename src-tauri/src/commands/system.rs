@@ -28,29 +28,7 @@ pub struct ConnectivityStatus {
 pub async fn check_connectivity(
     http_client: State<'_, reqwest::Client>,
 ) -> Result<ConnectivityStatus, AppError> {
-    let client = http_client.inner().clone();
-    let timeout = std::time::Duration::from_secs(3);
-
-    let (github, homebrew, itunes) = tokio::join!(
-        ping_url(&client, "https://api.github.com", timeout),
-        ping_url(&client, "https://formulae.brew.sh/api/cask.json", timeout),
-        ping_url(&client, "https://itunes.apple.com/lookup?bundleId=com.apple.Safari", timeout),
-    );
-
-    let reachable = [github, homebrew, itunes].iter().filter(|&&v| v).count();
-    let overall = match reachable {
-        3 => "connected",
-        0 => "disconnected",
-        _ => "partial",
-    }
-    .to_string();
-
-    Ok(ConnectivityStatus {
-        github,
-        homebrew,
-        itunes,
-        overall,
-    })
+    Ok(check_connectivity_inner(http_client.inner()).await)
 }
 
 async fn ping_url(client: &reqwest::Client, url: &str, timeout: std::time::Duration) -> bool {
@@ -68,6 +46,7 @@ pub struct PermissionsStatus {
     pub automation: bool,
     pub full_disk_access: bool,
     pub app_management: bool,
+    pub notifications: bool,
 }
 
 #[tauri::command]
@@ -81,11 +60,13 @@ pub async fn get_permissions_status() -> Result<PermissionsStatus, AppError> {
     .unwrap_or(false);
     let full_disk_access = permissions::has_full_disk_access();
     let app_management = permissions::has_app_management();
+    let notifications = permissions::has_notification_permission("com.macplus.app");
 
     Ok(PermissionsStatus {
         automation,
         full_disk_access,
         app_management,
+        notifications,
     })
 }
 
@@ -95,6 +76,7 @@ pub async fn open_system_preferences(pane: String) -> Result<(), AppError> {
         "automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
         "full_disk_access" => "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
         "app_management" => "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement",
+        "notifications" => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
         _ => return Err(AppError::CommandFailed(format!("Unknown pane: {}", pane))),
     };
 
@@ -161,6 +143,7 @@ pub struct SetupStatus {
     pub askpass_path: Option<String>,
     pub xcode_clt_installed: bool,
     pub permissions: PermissionsStatus,
+    pub connectivity: ConnectivityStatus,
 }
 
 /// Run a command with a timeout (seconds). Returns first line of stdout on success.
@@ -199,48 +182,93 @@ fn run_with_timeout(program: &Path, args: &[&str], timeout_secs: u64) -> Option<
 }
 
 #[tauri::command]
-pub async fn check_setup_status() -> Result<SetupStatus, AppError> {
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::task::spawn_blocking(move || {
-            let brew_installed = brew::brew_path().is_some();
-            let brew_version = if brew_installed {
-                brew::brew_path().and_then(|p| run_with_timeout(p, &["--version"], 3))
-            } else {
-                None
-            };
-            let brew_path_str = brew::brew_path().map(|p| p.display().to_string());
+pub async fn check_setup_status(
+    http_client: State<'_, reqwest::Client>,
+) -> Result<SetupStatus, AppError> {
+    let client = http_client.inner().clone();
+    let timeout_dur = std::time::Duration::from_secs(15);
 
-            let ap_installed = askpass::is_askpass_installed();
-            let ap_path = askpass::askpass_path().map(|p| p.display().to_string());
+    let result = tokio::time::timeout(timeout_dur, async {
+        // Run independent checks in parallel
+        let (brew_result, automation, xcode, fda, app_mgmt, notif, connectivity) = tokio::join!(
+            // Homebrew: version + path (blocking shell call)
+            tokio::task::spawn_blocking(|| {
+                let brew_installed = brew::brew_path().is_some();
+                let brew_version = if brew_installed {
+                    brew::brew_path().and_then(|p| run_with_timeout(p, &["--version"], 3))
+                } else {
+                    None
+                };
+                let brew_path_str = brew::brew_path().map(|p| p.display().to_string());
+                (brew_installed, brew_version, brew_path_str)
+            }),
+            // Automation permission (blocking osascript)
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                tokio::task::spawn_blocking(permissions::has_automation_permission),
+            ),
+            // Xcode CLT (blocking shell call)
+            tokio::task::spawn_blocking(utils::is_xcode_clt_installed),
+            // Full Disk Access (fast file check)
+            async { permissions::has_full_disk_access() },
+            // App Management (fast file check)
+            async { permissions::has_app_management() },
+            // Notification permission (blocking plist check)
+            tokio::task::spawn_blocking(|| {
+                permissions::has_notification_permission("com.macplus.app")
+            }),
+            // Connectivity (async HTTP pings)
+            check_connectivity_inner(&client),
+        );
 
-            let xcode_clt = utils::is_xcode_clt_installed();
-            let automation = permissions::has_automation_permission();
-            let full_disk_access = permissions::has_full_disk_access();
-            let app_management = permissions::has_app_management();
+        let (brew_installed, brew_version, brew_path_str) = brew_result.unwrap_or((false, None, None));
+        let automation = automation.unwrap_or(Ok(false)).unwrap_or(false);
+        let xcode_clt = xcode.unwrap_or(false);
+        let notifications = notif.unwrap_or(false);
 
-            SetupStatus {
-                homebrew_installed: brew_installed,
-                homebrew_version: brew_version,
-                homebrew_path: brew_path_str,
-                askpass_installed: ap_installed,
-                askpass_path: ap_path,
-                xcode_clt_installed: xcode_clt,
-                permissions: PermissionsStatus {
-                    automation,
-                    full_disk_access,
-                    app_management,
-                },
-            }
-        }),
-    )
+        let ap_installed = askpass::is_askpass_installed();
+        let ap_path = askpass::askpass_path().map(|p| p.display().to_string());
+
+        SetupStatus {
+            homebrew_installed: brew_installed,
+            homebrew_version: brew_version,
+            homebrew_path: brew_path_str,
+            askpass_installed: ap_installed,
+            askpass_path: ap_path,
+            xcode_clt_installed: xcode_clt,
+            permissions: PermissionsStatus {
+                automation,
+                full_disk_access: fda,
+                app_management: app_mgmt,
+                notifications,
+            },
+            connectivity,
+        }
+    })
     .await;
 
     match result {
-        Ok(Ok(status)) => Ok(status),
-        Ok(Err(e)) => Err(AppError::Custom(format!("setup check failed: {e}"))),
+        Ok(status) => Ok(status),
         Err(_) => Err(AppError::Custom("Setup check timed out".to_string())),
     }
+}
+
+/// Internal connectivity check reusable by both `check_connectivity` and `check_setup_status`.
+async fn check_connectivity_inner(client: &reqwest::Client) -> ConnectivityStatus {
+    let timeout = std::time::Duration::from_secs(3);
+    let (github, homebrew, itunes) = tokio::join!(
+        ping_url(client, "https://api.github.com", timeout),
+        ping_url(client, "https://formulae.brew.sh/api/cask.json", timeout),
+        ping_url(client, "https://itunes.apple.com/lookup?bundleId=com.apple.Safari", timeout),
+    );
+    let reachable = [github, homebrew, itunes].iter().filter(|&&v| v).count();
+    let overall = match reachable {
+        3 => "connected",
+        0 => "disconnected",
+        _ => "partial",
+    }
+    .to_string();
+    ConnectivityStatus { github, homebrew, itunes, overall }
 }
 
 #[tauri::command]

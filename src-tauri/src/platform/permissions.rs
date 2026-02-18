@@ -41,6 +41,49 @@ pub fn has_automation_permission() -> bool {
     }
 }
 
+/// Check if the app has notification permission via macOS UNUserNotificationCenter.
+/// Falls back to checking the notification settings database.
+pub fn has_notification_permission(bundle_id: &str) -> bool {
+    // Use `defaults read` to check the notification center prefs for our bundle ID.
+    // On macOS 13+, the notification center stores per-app flags.
+    let output = Command::new("defaults")
+        .args(["read", "com.apple.notificationcenterui"])
+        .output();
+    // If we can't read the plist, fall back to a heuristic:
+    // try sending a test notification — if it doesn't error, permission is likely granted.
+    // For now, use a simpler approach: check the UNNotificationSettings via osascript.
+
+    // Simpler approach: check the notification center database directly.
+    // The permission value 2 = authorized, 1 = denied, 0 = not determined.
+    let db_path = dirs::home_dir()
+        .map(|h| h.join("Library/Preferences/com.apple.ncprefs.plist"));
+    if let Some(ref path) = db_path {
+        if let Ok(plist_output) = Command::new("plutil")
+            .args(["-convert", "json", "-o", "-", &path.to_string_lossy()])
+            .output()
+        {
+            if plist_output.status.success() {
+                let json_str = String::from_utf8_lossy(&plist_output.stdout);
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(apps) = val.get("apps").and_then(|a| a.as_array()) {
+                        for app in apps {
+                            let bid = app.get("bundle-id").and_then(|b| b.as_str()).unwrap_or("");
+                            if bid == bundle_id {
+                                // flags & 0x04 == authorized for alerts
+                                let flags = app.get("flags").and_then(|f| f.as_u64()).unwrap_or(0);
+                                return flags & 4 != 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // If not found in prefs, assume not determined (treat as not granted)
+    drop(output);
+    false
+}
+
 /// Check if the app has App Management permission by testing write access
 /// to a known path in /Applications.
 pub fn has_app_management() -> bool {

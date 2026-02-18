@@ -1,7 +1,11 @@
 import {
   Beer,
+  Bell,
   CheckCircle2,
   ExternalLink,
+  FolderOpen,
+  Globe,
+  Info,
   KeyRound,
   RefreshCw,
   ShieldCheck,
@@ -18,6 +22,83 @@ import {
   type SetupStatus,
 } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
+
+function StatusIcon({ ok, optional }: { ok: boolean; optional?: boolean }) {
+  if (ok) return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  if (optional) return <XCircle className="h-4 w-4 text-muted-foreground" />;
+  return <XCircle className="h-4 w-4 text-destructive" />;
+}
+
+function SetupRow({
+  ok,
+  optional,
+  label,
+  description,
+  action,
+}: {
+  ok: boolean;
+  optional?: boolean;
+  label: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+      <div className="flex items-center gap-2">
+        <StatusIcon ok={ok} optional={optional} />
+        <div>
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function ActionButton({
+  onClick,
+  icon,
+  label,
+  variant = "primary",
+  disabled,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  variant?: "primary" | "muted";
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex items-center gap-1 rounded-md px-2.5 py-1",
+        "text-xs font-medium transition-colors",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        variant === "primary"
+          ? "bg-primary/10 text-primary hover:bg-primary/20"
+          : "bg-muted text-muted-foreground hover:bg-muted/80",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return (
+    <div className="mb-1 flex items-center gap-1.5">
+      {icon}
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h3>
+    </div>
+  );
+}
 
 export function SetupView() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
@@ -36,6 +117,10 @@ export function SetupView() {
 
   useEffect(() => {
     refresh();
+    // Re-check on window focus (user may have just granted permissions)
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
   const handleInstallHomebrew = () => {
@@ -59,7 +144,10 @@ export function SetupView() {
   if (loading && !status) {
     return (
       <div className="rounded-lg border border-border bg-background p-6">
-        <p className="text-sm text-muted-foreground">Checking setup...</p>
+        <div className="flex items-center gap-2">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Checking setup...</p>
+        </div>
       </div>
     );
   }
@@ -108,202 +196,166 @@ export function SetupView() {
         </button>
       </div>
 
-      {/* Section 1 — Homebrew */}
+      {/* Section 1 — Permissions */}
       <div>
-        <div className="mb-1 flex items-center gap-1.5">
-          <Beer className="h-3.5 w-3.5 text-muted-foreground" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Homebrew (Optional)
-          </h3>
-        </div>
+        <SectionHeader
+          icon={<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />}
+          title="Permissions"
+        />
         <div className="space-y-1">
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-            <div className="flex items-center gap-2">
-              {status.homebrewInstalled ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-destructive" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-foreground">Homebrew</p>
-                {status.homebrewInstalled ? (
-                  <p className="text-xs text-muted-foreground">
-                    {status.homebrewVersion ?? "Installed"}{" "}
-                    {status.homebrewPath && (
-                      <span className="text-muted-foreground/60">({status.homebrewPath})</span>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Optional — enables CLI tool updates and provides a fallback for some apps
-                  </p>
-                )}
-              </div>
-            </div>
-            {!status.homebrewInstalled && (
-              <button
-                type="button"
-                onClick={handleInstallHomebrew}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-primary/10 text-xs font-medium text-primary",
-                  "transition-colors hover:bg-primary/20",
-                )}
-              >
-                <Terminal className="h-3 w-3" />
-                Install Homebrew
-              </button>
-            )}
-          </div>
-
-          {/* Xcode CLT */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-            <div className="flex items-center gap-2">
-              {status.xcodeCltInstalled ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-muted-foreground" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-foreground">Xcode Command Line Tools</p>
-                <p className="text-xs text-muted-foreground">
-                  {status.xcodeCltInstalled
-                    ? "Installed"
-                    : "Required for building Homebrew formulas from source"}
-                </p>
-              </div>
-            </div>
-            {!status.xcodeCltInstalled && (
-              <button
-                type="button"
-                onClick={() => openTerminalWithCommand("xcode-select --install")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-muted text-xs font-medium text-muted-foreground",
-                  "transition-colors hover:bg-muted/80",
-                )}
-              >
-                <Terminal className="h-3 w-3" />
-                Install
-              </button>
-            )}
-          </div>
+          <SetupRow
+            ok={status.permissions.appManagement}
+            label="App Management"
+            description={
+              status.permissions.appManagement
+                ? "Granted"
+                : "Required to install and update apps in /Applications"
+            }
+            action={
+              !status.permissions.appManagement ? (
+                <ActionButton
+                  onClick={() => openSystemPreferences("app_management")}
+                  icon={<ExternalLink className="h-3 w-3" />}
+                  label="Grant"
+                />
+              ) : undefined
+            }
+          />
+          <SetupRow
+            ok={status.permissions.automation}
+            label="Automation"
+            description={
+              status.permissions.automation ? "Granted" : "Required to quit apps before updating"
+            }
+            action={
+              !status.permissions.automation ? (
+                <ActionButton
+                  onClick={() => openSystemPreferences("automation")}
+                  icon={<ExternalLink className="h-3 w-3" />}
+                  label="Grant"
+                />
+              ) : undefined
+            }
+          />
+          <SetupRow
+            ok={status.permissions.notifications}
+            label="Notifications"
+            description={
+              status.permissions.notifications ? "Granted" : "Required for background update alerts"
+            }
+            action={
+              !status.permissions.notifications ? (
+                <ActionButton
+                  onClick={() => openSystemPreferences("notifications")}
+                  icon={<Bell className="h-3 w-3" />}
+                  label="Grant"
+                />
+              ) : undefined
+            }
+          />
+          <SetupRow
+            ok={status.permissions.fullDiskAccess}
+            optional
+            label="Full Disk Access"
+            description={
+              status.permissions.fullDiskAccess
+                ? "Granted"
+                : "Optional — for scanning protected directories"
+            }
+            action={
+              !status.permissions.fullDiskAccess ? (
+                <ActionButton
+                  onClick={() => openSystemPreferences("full_disk_access")}
+                  icon={<ExternalLink className="h-3 w-3" />}
+                  label="Grant"
+                  variant="muted"
+                />
+              ) : undefined
+            }
+          />
         </div>
       </div>
 
-      {/* Section 2 — Permissions */}
+      {/* Section 2 — Connectivity */}
       <div>
-        <div className="mb-1 flex items-center gap-1.5">
-          <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Permissions
-          </h3>
-        </div>
+        <SectionHeader
+          icon={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
+          title="Connectivity"
+        />
         <div className="space-y-1">
-          {/* Automation */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-            <div className="flex items-center gap-2">
-              {status.permissions.automation ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-destructive" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-foreground">Automation</p>
-                <p className="text-xs text-muted-foreground">
-                  Required to quit apps before updating
-                </p>
-              </div>
-            </div>
-            {!status.permissions.automation && (
-              <button
-                type="button"
-                onClick={() => openSystemPreferences("automation")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-primary/10 text-xs font-medium text-primary",
-                  "transition-colors hover:bg-primary/20",
-                )}
-              >
-                <ExternalLink className="h-3 w-3" />
-                Grant
-              </button>
-            )}
-          </div>
-
-          {/* App Management */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-            <div className="flex items-center gap-2">
-              {status.permissions.appManagement ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-destructive" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-foreground">App Management</p>
-                <p className="text-xs text-muted-foreground">
-                  Required to install and update apps in /Applications
-                </p>
-              </div>
-            </div>
-            {!status.permissions.appManagement && (
-              <button
-                type="button"
-                onClick={() => openSystemPreferences("app_management")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-primary/10 text-xs font-medium text-primary",
-                  "transition-colors hover:bg-primary/20",
-                )}
-              >
-                <ExternalLink className="h-3 w-3" />
-                Grant
-              </button>
-            )}
-          </div>
-
-          {/* Full Disk Access */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
-            <div className="flex items-center gap-2">
-              {status.permissions.fullDiskAccess ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-muted-foreground" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-foreground">Full Disk Access</p>
-                <p className="text-xs text-muted-foreground">
-                  Optional, for scanning protected directories
-                </p>
-              </div>
-            </div>
-            {!status.permissions.fullDiskAccess && (
-              <button
-                type="button"
-                onClick={() => openSystemPreferences("full_disk_access")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-muted text-xs font-medium text-muted-foreground",
-                  "transition-colors hover:bg-muted/80",
-                )}
-              >
-                <ExternalLink className="h-3 w-3" />
-                Grant
-              </button>
-            )}
-          </div>
+          <SetupRow
+            ok={status.connectivity.github}
+            label="GitHub API"
+            description={
+              status.connectivity.github ? "Reachable" : "Required for GitHub release checks"
+            }
+          />
+          <SetupRow
+            ok={status.connectivity.homebrew}
+            label="Homebrew API"
+            description={
+              status.connectivity.homebrew
+                ? "Reachable"
+                : "Required for Homebrew cask version index"
+            }
+          />
+          <SetupRow
+            ok={status.connectivity.itunes}
+            label="iTunes API"
+            description={
+              status.connectivity.itunes ? "Reachable" : "Required for Mac App Store update checks"
+            }
+          />
         </div>
       </div>
 
-      {/* Section 3 — Admin Helper */}
+      {/* Section 3 — Tools */}
       <div>
-        <div className="mb-1 flex items-center gap-1.5">
-          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Admin Helper
-          </h3>
-        </div>
+        <SectionHeader
+          icon={<Beer className="h-3.5 w-3.5 text-muted-foreground" />}
+          title="Tools (Optional)"
+        />
         <div className="space-y-1">
+          <SetupRow
+            ok={status.homebrewInstalled}
+            optional
+            label="Homebrew"
+            description={
+              status.homebrewInstalled
+                ? `${status.homebrewVersion ?? "Installed"}${status.homebrewPath ? ` (${status.homebrewPath})` : ""}`
+                : "Optional — enables CLI tool updates and provides a fallback for some apps"
+            }
+            action={
+              !status.homebrewInstalled ? (
+                <ActionButton
+                  onClick={handleInstallHomebrew}
+                  icon={<Terminal className="h-3 w-3" />}
+                  label="Install Homebrew"
+                  variant="muted"
+                />
+              ) : undefined
+            }
+          />
+          <SetupRow
+            ok={status.xcodeCltInstalled}
+            optional
+            label="Xcode Command Line Tools"
+            description={
+              status.xcodeCltInstalled
+                ? "Installed"
+                : "Optional — required for building Homebrew formulas from source"
+            }
+            action={
+              !status.xcodeCltInstalled ? (
+                <ActionButton
+                  onClick={() => openTerminalWithCommand("xcode-select --install")}
+                  icon={<Terminal className="h-3 w-3" />}
+                  label="Install"
+                  variant="muted"
+                />
+              ) : undefined
+            }
+          />
           <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
             <div className="flex items-center gap-2">
               {status.askpassInstalled ? (
@@ -316,26 +368,48 @@ export function SetupView() {
                 <p className="text-xs text-muted-foreground">
                   {status.askpassInstalled
                     ? "Ready"
-                    : "Allows macPlus to securely prompt for your password when apps need administrator access to install (e.g., driver packages)"}
+                    : "Allows macPlus to securely prompt for your password when apps need administrator access"}
                 </p>
               </div>
             </div>
             {!status.askpassInstalled && (
-              <button
-                type="button"
+              <ActionButton
                 onClick={handleConfigureAskpass}
                 disabled={configuringAskpass}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1",
-                  "bg-primary/10 text-xs font-medium text-primary",
-                  "transition-colors hover:bg-primary/20",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                )}
-              >
-                <Wrench className="h-3 w-3" />
-                {configuringAskpass ? "Configuring..." : "Configure"}
-              </button>
+                icon={<Wrench className="h-3 w-3" />}
+                label={configuringAskpass ? "Configuring..." : "Configure"}
+              />
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4 — App Info */}
+      <div>
+        <SectionHeader
+          icon={<Info className="h-3.5 w-3.5 text-muted-foreground" />}
+          title="App Info"
+        />
+        <div className="space-y-1">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Version</p>
+                <p className="text-xs text-muted-foreground">v{__APP_VERSION__}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Data Path</p>
+                <p className="text-xs text-muted-foreground">
+                  ~/Library/Application Support/com.macplus.app
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

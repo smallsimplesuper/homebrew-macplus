@@ -71,6 +71,7 @@ export interface PermissionsStatus {
   automation: boolean;
   fullDiskAccess: boolean;
   appManagement: boolean;
+  notifications: boolean;
 }
 
 export async function getPermissionsStatus(): Promise<PermissionsStatus> {
@@ -89,6 +90,7 @@ export interface SetupStatus {
   askpassPath: string | null;
   xcodeCltInstalled: boolean;
   permissions: PermissionsStatus;
+  connectivity: ConnectivityStatus;
 }
 
 export async function checkSetupStatus(): Promise<SetupStatus> {
