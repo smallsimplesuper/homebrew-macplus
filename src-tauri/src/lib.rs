@@ -145,6 +145,24 @@ pub fn run() {
                 crate::utils::askpass::init_askpass_path(resource_dir);
             }
 
+            // Clean up stale self-update artifacts from previous runs
+            {
+                let backup = std::path::Path::new("/Applications/macPlus.app.update-backup");
+                if backup.exists() {
+                    let _ = std::fs::remove_dir_all(backup);
+                }
+                if let Ok(entries) = std::fs::read_dir("/tmp") {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name = name.to_string_lossy();
+                        if name.starts_with("macplus-update-") || name.starts_with("macplus-self-update-") {
+                            let _ = std::fs::remove_dir_all(entry.path());
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+
             // Add icon cache directory to asset protocol scope
             if let Ok(cache_dir) = app.path().app_cache_dir() {
                 let icons_dir = cache_dir.join("icons");

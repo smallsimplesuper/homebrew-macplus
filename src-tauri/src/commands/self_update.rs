@@ -1,4 +1,5 @@
 use std::io::{Read as _, Write as _};
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,7 @@ use crate::utils::brew::brew_path;
 use crate::utils::AppError;
 
 const SELF_REPO_OWNER: &str = "smallsimplesuper";
-const SELF_REPO_NAME: &str = "homebrew-macplus";
+const SELF_REPO_NAME: &str = "macplus";
 const SELF_BUNDLE_ID: &str = "com.macplus.app";
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +103,134 @@ fn emit_progress(app: &AppHandle, phase: &str, percent: u8, dl: Option<u64>, tot
     );
 }
 
+/// Check whether the app's parent directory is writable without elevation.
+fn is_writable(path: &std::path::Path) -> bool {
+    let parent = match path.parent() {
+        Some(p) => p,
+        None => return false,
+    };
+    let probe = parent.join(".macplus-write-test");
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Shell script template for the detached updater.
+///
+/// Placeholders: {OLD_PID}, {OLD_APP}, {NEW_APP}, {NEEDS_SUDO}, {LOG}
+const UPDATER_SCRIPT_TEMPLATE: &str = r#"#!/bin/bash
+set -euo pipefail
+
+LOG="{LOG}"
+exec >> "$LOG" 2>&1
+
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+cleanup() {
+    log "Cleanup: removing temp dir and self"
+    rm -rf "{TMP_DIR}"
+    rm -f "$0"
+}
+trap cleanup EXIT
+
+OLD_PID={OLD_PID}
+OLD_APP="{OLD_APP}"
+NEW_APP="{NEW_APP}"
+NEEDS_SUDO={NEEDS_SUDO}
+BACKUP="${OLD_APP}.update-backup"
+
+# 1. Wait for old process to exit
+log "Waiting for PID $OLD_PID to exit..."
+WAITED=0
+while kill -0 "$OLD_PID" 2>/dev/null; do
+    sleep 0.5
+    WAITED=$((WAITED + 1))
+    if [ "$WAITED" -ge 20 ]; then
+        log "Old process still running after 10s, sending SIGKILL"
+        kill -9 "$OLD_PID" 2>/dev/null || true
+        sleep 1
+        break
+    fi
+done
+log "Old process exited"
+
+# 2. Validate new app bundle
+if [ ! -x "${NEW_APP}/Contents/MacOS/macPlus" ]; then
+    log "ERROR: New app bundle is invalid (missing executable)"
+    exit 1
+fi
+
+# 3. Replace app bundle
+do_replace() {
+    log "Backing up old app to $BACKUP"
+    mv "$OLD_APP" "$BACKUP"
+
+    log "Copying new app to $OLD_APP"
+    cp -R "$NEW_APP" "$OLD_APP"
+
+    log "Removing quarantine attribute"
+    xattr -rd com.apple.quarantine "$OLD_APP" 2>/dev/null || true
+
+    log "Removing backup"
+    rm -rf "$BACKUP"
+}
+
+rollback() {
+    log "ERROR: Replacement failed, rolling back from backup"
+    if [ -d "$BACKUP" ]; then
+        rm -rf "$OLD_APP" 2>/dev/null || true
+        mv "$BACKUP" "$OLD_APP"
+        log "Rollback complete"
+    else
+        log "No backup found, cannot rollback"
+    fi
+}
+
+if [ "$NEEDS_SUDO" = "1" ]; then
+    log "Elevated privileges required"
+    # Try sudo -n first (reuses cached timestamp from pre-auth)
+    if sudo -n sh -c "$(cat <<'INNER'
+set -e
+mv "$1" "$2"
+cp -R "$3" "$1"
+xattr -rd com.apple.quarantine "$1" 2>/dev/null || true
+rm -rf "$2"
+INNER
+)" -- "$OLD_APP" "$BACKUP" "$NEW_APP" 2>/dev/null; then
+        log "Replaced with sudo -n"
+    else
+        log "sudo -n failed, trying osascript"
+        ESCAPED_OLD=$(echo "$OLD_APP" | sed "s/'/'\\\\''/g")
+        ESCAPED_BACKUP=$(echo "$BACKUP" | sed "s/'/'\\\\''/g")
+        ESCAPED_NEW=$(echo "$NEW_APP" | sed "s/'/'\\\\''/g")
+        SCRIPT="mv '${ESCAPED_OLD}' '${ESCAPED_BACKUP}' && cp -R '${ESCAPED_NEW}' '${ESCAPED_OLD}' && xattr -rd com.apple.quarantine '${ESCAPED_OLD}' 2>/dev/null; rm -rf '${ESCAPED_BACKUP}'"
+        if osascript -e "do shell script \"${SCRIPT}\" with administrator privileges" 2>/dev/null; then
+            log "Replaced with osascript elevation"
+        else
+            log "osascript elevation failed"
+            rollback
+            exit 1
+        fi
+    fi
+else
+    if do_replace; then
+        log "Replaced without elevation"
+    else
+        rollback
+        exit 1
+    fi
+fi
+
+# 4. Relaunch
+log "Launching new app"
+open "$OLD_APP"
+log "Update complete"
+"#;
+
 #[tauri::command]
 pub async fn execute_self_update(
     download_url: String,
@@ -121,8 +250,13 @@ pub async fn execute_self_update(
 
     emit_progress(&app_handle, "Preparing update...", 2, None, None);
 
-    // 2. Create temp dir
-    let tmp_dir = tempfile::tempdir()
+    // 2. Create stable temp dir (not RAII — the shell script handles cleanup)
+    let pid = std::process::id();
+    let tmp_dir = std::path::PathBuf::from(format!("/tmp/macplus-update-{}", pid));
+    if tmp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+    std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| AppError::CommandFailed(format!("Failed to create temp dir: {}", e)))?;
 
     // 3. Download DMG with streaming progress
@@ -165,7 +299,7 @@ pub async fn execute_self_update(
         });
 
     let total_bytes = response.content_length();
-    let download_path = tmp_dir.path().join(&filename);
+    let download_path = tmp_dir.join(&filename);
     let mut file = std::fs::File::create(&download_path)
         .map_err(|e| AppError::CommandFailed(format!("Failed to create download file: {}", e)))?;
     let mut downloaded: u64 = 0;
@@ -221,87 +355,67 @@ pub async fn execute_self_update(
         emit_progress(&app_handle, phase, pct, None, None);
     };
     let new_app_path =
-        sparkle_executor::extract_from_dmg(&download_path, tmp_dir.path(), &progress_cb, "macPlus")?;
+        sparkle_executor::extract_from_dmg(&download_path, &tmp_dir, &progress_cb, "macPlus")?;
 
-    emit_progress(&app_handle, "Replacing application...", 75, None, None);
+    emit_progress(&app_handle, "Preparing to install...", 75, None, None);
 
-    // 6. Replace app bundle: rm -rf old + cp -R new
-    let cp_output = Command::new("cp")
+    // 6. Check write access and pre-authenticate if needed
+    let needs_sudo = !is_writable(app_bundle);
+    if needs_sudo {
+        emit_progress(&app_handle, "Requesting administrator privileges...", 80, None, None);
+        if !crate::utils::sudo_session::pre_authenticate() {
+            return Err(AppError::CommandFailed(
+                "Update cancelled \u{2014} administrator approval is required".to_string(),
+            ));
+        }
+    }
+
+    emit_progress(&app_handle, "Installing update...", 85, None, None);
+
+    // 7. Write updater shell script
+    let script_path = format!("/tmp/macplus-self-update-{}.sh", pid);
+    let log_path = "/tmp/macplus-self-update.log";
+    let script_content = UPDATER_SCRIPT_TEMPLATE
+        .replace("{OLD_PID}", &pid.to_string())
+        .replace("{OLD_APP}", &app_path_str)
+        .replace("{NEW_APP}", &new_app_path.to_string_lossy())
+        .replace("{NEEDS_SUDO}", if needs_sudo { "1" } else { "0" })
+        .replace("{TMP_DIR}", &tmp_dir.to_string_lossy())
+        .replace("{LOG}", log_path);
+
+    std::fs::write(&script_path, &script_content)
+        .map_err(|e| AppError::CommandFailed(format!("Failed to write updater script: {}", e)))?;
+
+    // Make executable
+    Command::new("chmod")
         .current_dir("/tmp")
-        .args(["-R", &new_app_path.to_string_lossy(), &app_path_str])
+        .args(["+x", &script_path])
         .output()
-        .map_err(|e| AppError::CommandFailed(format!("Failed to copy app: {}", e)))?;
+        .map_err(|e| AppError::CommandFailed(format!("Failed to chmod updater script: {}", e)))?;
 
-    if !cp_output.status.success() {
-        let stderr = String::from_utf8_lossy(&cp_output.stderr);
-        let needs_elevation =
-            stderr.contains("Permission denied") || stderr.contains("Operation not permitted");
-
-        if needs_elevation {
-            emit_progress(&app_handle, "Requesting administrator privileges...", 80, None, None);
-
-            let elevated_cmd = format!(
-                "rm -rf '{}' && cp -R '{}' '{}'",
-                app_path_str.replace('\'', "'\\''"),
-                new_app_path.to_string_lossy().replace('\'', "'\\''"),
-                app_path_str.replace('\'', "'\\''"),
-            );
-
-            match crate::utils::sudo_session::run_elevated_shell(&elevated_cmd) {
-                Ok(out) if out.status.success() => {}
-                Err(crate::utils::sudo_session::ElevatedError::UserCancelled) => {
-                    return Err(AppError::CommandFailed(
-                        "Update cancelled \u{2014} administrator approval is required".to_string(),
-                    ));
-                }
-                Ok(out) => {
-                    let msg = String::from_utf8_lossy(&out.stderr).to_string();
-                    return Err(AppError::CommandFailed(format!(
-                        "Failed to replace app (elevated): {}",
-                        msg
-                    )));
-                }
-                Err(e) => {
-                    return Err(AppError::CommandFailed(format!(
-                        "Failed to request admin privileges: {}",
-                        e
-                    )));
-                }
-            }
-        } else {
-            return Err(AppError::CommandFailed(format!(
-                "Failed to replace app: {}",
-                stderr
-            )));
-        }
-    }
-
-    emit_progress(&app_handle, "Finishing up...", 90, None, None);
-
-    // 7. Remove quarantine attribute (best-effort, try elevated if needed)
-    let xattr_output = Command::new("xattr")
-        .current_dir("/tmp")
-        .args(["-rd", "com.apple.quarantine", &app_path_str])
-        .output();
-    if let Ok(ref out) = xattr_output {
-        if !out.status.success() {
-            let _ = crate::utils::sudo_session::run_elevated(
-                "xattr",
-                &["-rd", "com.apple.quarantine", &app_path_str],
-            );
-        }
-    }
-
+    // 8. Spawn updater script fully detached (survives parent exit)
     emit_progress(&app_handle, "Relaunching macPlus...", 95, None, None);
 
-    // 8. Launch new version
-    let _ = Command::new("open")
-        .current_dir("/tmp")
-        .arg(&app_path_str)
-        .spawn();
+    let mut cmd = Command::new("/bin/bash");
+    cmd.current_dir("/tmp")
+        .arg(&script_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
 
-    // 9. Brief sleep then exit old process
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // SAFETY: setsid() creates a new session so the script is not killed when our process exits.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+
+    cmd.spawn()
+        .map_err(|e| AppError::CommandFailed(format!("Failed to spawn updater script: {}", e)))?;
+
+    // 9. Exit old process — the script takes it from here
+    tokio::time::sleep(Duration::from_millis(200)).await;
     app_handle.exit(0);
 
     Ok(())
