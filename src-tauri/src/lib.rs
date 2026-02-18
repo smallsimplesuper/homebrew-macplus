@@ -119,6 +119,7 @@ pub fn run() {
             commands::system::open_terminal_with_command,
             commands::system::check_connectivity,
             commands::self_update::check_self_update,
+            commands::self_update::execute_self_update,
         ])
         // Part 2: Hide main window on close instead of quitting
         .on_window_event(|window, event| {

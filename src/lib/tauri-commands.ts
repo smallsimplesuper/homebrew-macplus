@@ -115,6 +115,17 @@ export async function checkSelfUpdate(): Promise<SelfUpdateInfo | null> {
   return invoke<SelfUpdateInfo | null>("check_self_update");
 }
 
+export interface SelfUpdateProgress {
+  phase: string;
+  percent: number;
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+}
+
+export async function executeSelfUpdate(downloadUrl: string): Promise<void> {
+  return invoke("execute_self_update", { downloadUrl });
+}
+
 export interface ConnectivityStatus {
   github: boolean;
   homebrew: boolean;

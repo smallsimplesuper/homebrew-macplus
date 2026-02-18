@@ -379,7 +379,7 @@ impl UpdateExecutor for SparkleExecutor {
     }
 }
 
-fn extract_from_dmg(
+pub(crate) fn extract_from_dmg(
     dmg_path: &Path,
     tmp_dir: &Path,
     on_progress: &(dyn Fn(u8, &str, Option<(u64, Option<u64>)>) + Send + Sync),
@@ -475,7 +475,7 @@ fn extract_from_zip(zip_path: &Path, tmp_dir: &Path) -> AppResult<PathBuf> {
     find_app_in_dir(&extract_dir)
 }
 
-fn find_app_in_dir(dir: &Path) -> AppResult<PathBuf> {
+pub(crate) fn find_app_in_dir(dir: &Path) -> AppResult<PathBuf> {
     // Look for .app bundles at the top level
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -507,7 +507,7 @@ fn find_app_in_dir(dir: &Path) -> AppResult<PathBuf> {
 }
 
 #[derive(Debug, PartialEq)]
-enum FileType {
+pub(crate) enum FileType {
     Dmg,
     Zip,
     Pkg,
@@ -515,7 +515,7 @@ enum FileType {
 }
 
 /// Detect file type using Content-Type header, filename extension, and magic bytes (in that order).
-fn detect_file_type(content_type: &str, filename: &str, bytes: &[u8]) -> FileType {
+pub(crate) fn detect_file_type(content_type: &str, filename: &str, bytes: &[u8]) -> FileType {
     // 1. Check Content-Type header (skip generic types)
     if !content_type.is_empty() && content_type != "application/octet-stream" {
         if content_type.contains("apple-diskimage") || content_type.contains("x-diskcopy") {
