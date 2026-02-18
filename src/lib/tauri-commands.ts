@@ -174,3 +174,34 @@ export async function debugUpdateCheck(bundleId: string): Promise<UpdateCheckDia
 export async function checkPathsExist(paths: string[]): Promise<Record<string, boolean>> {
   return invoke<Record<string, boolean>>("check_paths_exist", { paths });
 }
+
+export interface UninstallResult {
+  bundleId: string;
+  success: boolean;
+  message: string | null;
+  running: boolean;
+  cleanedPaths: string[];
+  protected: boolean;
+}
+
+export interface AssociatedFile {
+  path: string;
+  sizeBytes: number;
+  kind: string;
+}
+
+export interface AssociatedFiles {
+  paths: AssociatedFile[];
+  totalSizeBytes: number;
+}
+
+export async function uninstallApp(
+  bundleId: string,
+  cleanupAssociated: boolean,
+): Promise<UninstallResult> {
+  return invoke<UninstallResult>("uninstall_app", { bundleId, cleanupAssociated });
+}
+
+export async function scanAssociatedFiles(bundleId: string): Promise<AssociatedFiles> {
+  return invoke<AssociatedFiles>("scan_associated_files", { bundleId });
+}

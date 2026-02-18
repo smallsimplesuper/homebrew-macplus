@@ -52,6 +52,17 @@ pub async fn run_full_scan(
 
     let engine = DetectionEngine::with_scan_locations(scan_locations, scan_depth);
 
+    // Emit initial progress event immediately so the UI shows activity right away
+    let _ = app_handle.emit(
+        "scan-progress",
+        ScanProgress {
+            phase: "Starting".to_string(),
+            current: 0,
+            total: 6,
+            app_name: None,
+        },
+    );
+
     let handle = app_handle.clone();
     let apps = engine
         .detect_all(|phase, current, total| {
@@ -75,6 +86,17 @@ pub async fn run_full_scan(
             let _ = db_guard.upsert_app(app);
         }
         let _ = db_guard.conn.execute_batch("COMMIT");
+
+        // Emit progress: extracting icons phase
+        let _ = app_handle.emit(
+            "scan-progress",
+            ScanProgress {
+                phase: "Extracting icons".to_string(),
+                current: 6,
+                total: 6,
+                app_name: None,
+            },
+        );
 
         // Extract icons for non-formula apps
         if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
@@ -151,11 +173,14 @@ pub async fn run_full_scan(
         }
     }
 
+    // Emit progress: indexing phase (cask token backfill)
     let _ = app_handle.emit(
-        "scan-complete",
-        ScanComplete {
-            app_count: count,
-            duration_ms: start.elapsed().as_millis() as u64,
+        "scan-progress",
+        ScanProgress {
+            phase: "Indexing".to_string(),
+            current: 6,
+            total: 6,
+            app_name: None,
         },
     );
 
@@ -164,6 +189,14 @@ pub async fn run_full_scan(
     if let Some(index) = homebrew_api::fetch_cask_index(client.inner()).await {
         backfill_cask_tokens(db, &Arc::new(index)).await;
     }
+
+    let _ = app_handle.emit(
+        "scan-complete",
+        ScanComplete {
+            app_count: count,
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+    );
 
     Ok(count)
 }
@@ -238,6 +271,26 @@ pub async fn run_update_check(
     let total = apps.len();
     let checked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let updates_found = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    // Emit initial progress event immediately
+    let _ = app_handle.emit(
+        "update-check-progress",
+        crate::models::UpdateCheckProgress {
+            checked: 0,
+            total,
+            current_app: Some("Preparing...".to_string()),
+        },
+    );
+
+    // Emit progress: fetching Homebrew data
+    let _ = app_handle.emit(
+        "update-check-progress",
+        crate::models::UpdateCheckProgress {
+            checked: 0,
+            total,
+            current_app: Some("Fetching Homebrew data...".to_string()),
+        },
+    );
 
     // Pre-compute brew outdated, formulae, and cask index concurrently
     let http_for_index = http_client.clone();

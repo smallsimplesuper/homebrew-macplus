@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Bug, Eye, EyeOff, FolderOpen, Play, RefreshCw, X } from "lucide-react";
+import { Bug, Eye, EyeOff, FolderOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { useAppDetail, useToggleIgnored } from "@/hooks/useApps";
@@ -243,6 +243,30 @@ export function AppDetailSheet() {
                   </button>
                   <button
                     type="button"
+                    onClick={() =>
+                      useUIStore.getState().setUninstallTarget({
+                        bundleId: detail.bundleId,
+                        displayName: detail.displayName,
+                        appPath: detail.appPath,
+                        installSource: detail.installSource,
+                        iconCachePath: detail.iconCachePath,
+                        installedVersion: detail.installedVersion,
+                        homebrewCaskToken: detail.homebrewCaskToken ?? null,
+                        homebrewFormulaName: detail.homebrewFormulaName ?? null,
+                      })
+                    }
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-lg",
+                      "border border-destructive/30 bg-background px-3 py-2",
+                      "text-xs font-medium text-destructive",
+                      "transition-colors hover:bg-destructive/10",
+                    )}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Uninstall
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDebug}
                     disabled={debugLoading}
                     className={cn(
@@ -251,7 +275,6 @@ export function AppDetailSheet() {
                       "text-xs font-medium text-foreground",
                       "transition-colors hover:bg-muted",
                       "disabled:opacity-50 disabled:cursor-not-allowed",
-                      "col-span-2",
                     )}
                   >
                     <Bug className={cn("h-3.5 w-3.5", debugLoading && "animate-spin")} />

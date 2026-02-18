@@ -9,6 +9,7 @@ pub mod spotlight;
 pub mod system_profiler;
 
 use async_trait::async_trait;
+use futures::stream::{FuturesUnordered, StreamExt};
 
 use crate::models::DetectedApp;
 use crate::utils::AppResult;
@@ -47,20 +48,29 @@ impl DetectionEngine {
     ) -> AppResult<Vec<DetectedApp>> {
         let total = self.detectors.len();
 
-        // Run all detectors concurrently
-        let handles: Vec<_> = self.detectors.iter().map(|d| d.detect()).collect();
-        let results = futures::future::join_all(handles).await;
+        // Run all detectors concurrently with FuturesUnordered for real-time progress
+        let mut futures: FuturesUnordered<_> = self
+            .detectors
+            .iter()
+            .map(|d| {
+                let name = d.name().to_string();
+                async move { (name, d.detect().await) }
+            })
+            .collect();
 
         let mut all_apps = Vec::new();
-        for (i, (result, detector)) in results.into_iter().zip(self.detectors.iter()).enumerate() {
-            on_progress(detector.name(), i, total);
+        let mut completed = 0usize;
+
+        while let Some((name, result)) = futures.next().await {
+            completed += 1;
+            on_progress(&name, completed, total);
             match result {
                 Ok(apps) => {
-                    log::info!("{} found {} apps", detector.name(), apps.len());
+                    log::info!("{} found {} apps", name, apps.len());
                     all_apps.extend(apps);
                 }
                 Err(e) => {
-                    log::warn!("{} failed: {}", detector.name(), e);
+                    log::warn!("{} failed: {}", name, e);
                 }
             }
         }

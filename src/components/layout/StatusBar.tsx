@@ -98,7 +98,7 @@ export default function StatusBar({
 
   // Right-side fixed elements (version + connectivity + logo)
   const rightSection = (
-    <div className="ml-2 flex shrink-0 items-center gap-2">
+    <div className="ml-auto flex shrink-0 items-center gap-2">
       <span className="text-muted-foreground/40">v{__APP_VERSION__}</span>
       <ConnectivityPopover details={connectivityDetails} status={connectivity} />
       <S3Logo className="opacity-40 transition-opacity hover:opacity-70" />

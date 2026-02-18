@@ -11,6 +11,7 @@ import {
   Globe,
   Loader2,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
@@ -26,6 +27,7 @@ import { formatDownloadProgress } from "@/lib/format-bytes";
 import { getUpdateHistory } from "@/lib/tauri-commands";
 import { isDelegatedUpdate } from "@/lib/update-utils";
 import { cn } from "@/lib/utils";
+import { useUIStore } from "@/stores/uiStore";
 import { useUpdateProgressStore } from "@/stores/updateProgressStore";
 import type { AppSummary } from "@/types/app";
 import type { UpdateExecuteComplete } from "@/types/update";
@@ -70,6 +72,7 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
   const progress = useUpdateProgressStore((s) => s.progress[app.bundleId]);
   const relaunch = useUpdateProgressStore((s) => s.relaunchNeeded[app.bundleId]);
   const toggleIgnored = useToggleIgnored();
+  const setUninstallTarget = useUIStore((s) => s.setUninstallTarget);
   const [changelogOpen, setChangelogOpen] = useState(false);
 
   const hasChangelog = app.releaseNotes != null || app.releaseNotesUrl != null;
@@ -192,6 +195,30 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
                 title="Ignore this app"
               >
                 <EyeOff className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setUninstallTarget({
+                    bundleId: app.bundleId,
+                    displayName: app.displayName,
+                    appPath: app.appPath,
+                    installSource: app.installSource,
+                    iconCachePath: app.iconCachePath,
+                    installedVersion: app.installedVersion,
+                    homebrewCaskToken: app.homebrewCaskToken,
+                    homebrewFormulaName: app.homebrewFormulaName,
+                  })
+                }
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-md",
+                  "h-7 w-7 text-muted-foreground",
+                  "opacity-0 transition-all group-hover:opacity-100",
+                  "hover:bg-destructive/10 hover:text-destructive",
+                )}
+                title="Uninstall"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
 
               {hasChangelog && (

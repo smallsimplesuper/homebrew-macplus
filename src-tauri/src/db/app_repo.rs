@@ -275,6 +275,15 @@ impl Database {
         Ok(rows)
     }
 
+    /// Delete an app and all related data (cascading FK delete).
+    pub fn delete_app(&self, bundle_id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "DELETE FROM apps WHERE bundle_id = ?1",
+            [bundle_id],
+        )?;
+        Ok(())
+    }
+
     /// Store or update the SHA-256 for a cask token.
     pub fn set_cask_sha(&self, cask_token: &str, sha256: &str) -> AppResult<()> {
         self.conn.execute(

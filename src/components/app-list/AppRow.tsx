@@ -1,5 +1,14 @@
 import { open } from "@tauri-apps/plugin-shell";
-import { AlertTriangle, ArrowRight, Check, Download, Eye, EyeOff, Globe } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Download,
+  Eye,
+  EyeOff,
+  Globe,
+  Trash2,
+} from "lucide-react";
 import { memo } from "react";
 import { InfoPopover } from "@/components/shared/InfoPopover";
 import { InlineUpdateProgress, RelaunchButton } from "@/components/shared/InlineUpdateProgress";
@@ -22,6 +31,7 @@ interface AppRowProps {
 export const AppRow = memo(
   function AppRow({ app, isSelected }: AppRowProps) {
     const selectApp = useUIStore((s) => s.selectApp);
+    const setUninstallTarget = useUIStore((s) => s.setUninstallTarget);
     const executeUpdate = useExecuteUpdate();
     const toggleIgnored = useToggleIgnored();
     const filterView = useAppFilterStore((s) => s.filterView);
@@ -108,6 +118,30 @@ export const AppRow = memo(
               <EyeOff className="h-3.5 w-3.5" />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() =>
+              setUninstallTarget({
+                bundleId: app.bundleId,
+                displayName: app.displayName,
+                appPath: app.appPath,
+                installSource: app.installSource,
+                iconCachePath: app.iconCachePath,
+                installedVersion: app.installedVersion,
+                homebrewCaskToken: app.homebrewCaskToken,
+                homebrewFormulaName: app.homebrewFormulaName,
+              })
+            }
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-md",
+              "h-7 w-7 text-muted-foreground",
+              "opacity-0 transition-all group-hover:opacity-100",
+              "hover:bg-destructive/10 hover:text-destructive",
+            )}
+            title="Uninstall"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
           <InfoPopover app={app} />
           {relaunch ? (
             <RelaunchButton

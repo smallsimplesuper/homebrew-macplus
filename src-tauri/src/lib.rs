@@ -123,6 +123,8 @@ pub fn run() {
             commands::self_update::check_self_update,
             commands::self_update::execute_self_update,
             commands::self_update::relaunch_self,
+            commands::uninstall::uninstall_app,
+            commands::uninstall::scan_associated_files,
         ])
         // Part 2: Hide main window on close instead of quitting
         .on_window_event(|window, event| {

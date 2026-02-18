@@ -30,6 +30,7 @@ export interface AppDetail {
   installSource: string;
   obtainedFrom: string | null;
   homebrewCaskToken: string | null;
+  homebrewFormulaName: string | null;
   isIgnored: boolean;
   firstSeenAt: string | null;
   lastSeenAt: string | null;

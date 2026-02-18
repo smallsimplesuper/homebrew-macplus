@@ -18,6 +18,7 @@ import { CommandPalette } from "@/components/shared/CommandPalette";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { PermissionBanner } from "@/components/shared/PermissionBanner";
 import { SelfUpdateBanner } from "@/components/shared/SelfUpdateBanner";
+import { UninstallDialog } from "@/components/shared/UninstallDialog";
 import { UpdateHistoryView } from "@/components/updates/UpdateHistoryView";
 import { UpdatesOverview } from "@/components/updates/UpdatesOverview";
 import { useApps, useFullScan } from "@/hooks/useApps";
@@ -115,6 +116,7 @@ function DesktopApp() {
         {detailOpen && <AppDetailSheet />}
       </div>
       <CommandPalette />
+      <UninstallDialog />
     </DesktopShell>
   );
 }
