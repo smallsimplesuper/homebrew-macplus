@@ -15,6 +15,7 @@ export interface AppSummary {
   releaseNotes: string | null;
   releaseNotesUrl: string | null;
   updateNotes: string | null;
+  description: string | null;
 }
 
 export interface AppDetail {
@@ -32,6 +33,7 @@ export interface AppDetail {
   isIgnored: boolean;
   firstSeenAt: string | null;
   lastSeenAt: string | null;
+  description: string | null;
   updateSources: UpdateSourceInfo[];
   availableUpdate: AvailableUpdateInfo | null;
 }

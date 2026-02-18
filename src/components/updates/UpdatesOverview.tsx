@@ -1,20 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
+import { open } from "@tauri-apps/plugin-shell";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
   CheckCircle,
   CheckCircle2,
   Download,
-  ExternalLink,
   EyeOff,
   FileText,
   FolderSearch,
+  Globe,
   Loader2,
   RefreshCw,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
 import { AppIcon } from "@/components/app-list/AppIcon";
+import { InfoPopover } from "@/components/shared/InfoPopover";
 import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUpdateProgress";
 import { usePermissionsGranted } from "@/components/shared/PermissionBanner";
 import { useApps, useFullScan, useToggleIgnored } from "@/hooks/useApps";
@@ -175,8 +177,22 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
               </div>
             </div>
 
-            {/* Right side: changelog toggle + action button */}
+            {/* Right side: ignore + changelog + action button */}
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => toggleIgnored.mutate({ bundleId: app.bundleId, ignored: true })}
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-md",
+                  "h-7 w-7 text-muted-foreground",
+                  "opacity-0 transition-all group-hover:opacity-100",
+                  "hover:bg-muted hover:text-foreground",
+                )}
+                title="Ignore this app"
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+              </button>
+
               {hasChangelog && (
                 <button
                   type="button"
@@ -193,19 +209,7 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => toggleIgnored.mutate({ bundleId: app.bundleId, ignored: true })}
-                className={cn(
-                  "flex shrink-0 items-center justify-center rounded-md",
-                  "h-7 w-7 text-muted-foreground",
-                  "opacity-0 transition-all group-hover:opacity-100",
-                  "hover:bg-muted hover:text-foreground",
-                )}
-                title="Ignore this app"
-              >
-                <EyeOff className="h-3.5 w-3.5" />
-              </button>
+              <InfoPopover app={app} />
 
               {relaunch ? (
                 <RelaunchButton
@@ -213,6 +217,35 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
                   appPath={relaunch.appPath}
                   variant="compact"
                 />
+              ) : isDelegatedUpdate(app) ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(app.bundleId)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 rounded-md",
+                      "bg-primary px-2.5 py-1.5",
+                      "text-xs font-medium text-primary-foreground",
+                      "transition-colors hover:bg-primary/90",
+                    )}
+                  >
+                    Open App
+                  </button>
+                  {app.releaseNotesUrl && (
+                    <button
+                      type="button"
+                      onClick={() => open(app.releaseNotesUrl!)}
+                      className={cn(
+                        "flex shrink-0 items-center justify-center rounded-md",
+                        "h-7 w-7 text-muted-foreground",
+                        "transition-colors hover:bg-muted hover:text-foreground",
+                      )}
+                      title="Release notes"
+                    >
+                      <Globe className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               ) : (
                 <button
                   type="button"
@@ -224,17 +257,8 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
                     "transition-colors hover:bg-primary/90",
                   )}
                 >
-                  {isDelegatedUpdate(app) ? (
-                    <>
-                      <ExternalLink className="h-3 w-3" />
-                      Open Updater
-                    </>
-                  ) : (
-                    <>
-                      <Download className="h-3 w-3" />
-                      Update
-                    </>
-                  )}
+                  <Download className="h-3 w-3" />
+                  Update
                 </button>
               )}
             </div>

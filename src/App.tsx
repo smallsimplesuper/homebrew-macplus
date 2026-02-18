@@ -49,6 +49,7 @@ function DesktopApp() {
 
   // Startup: scan + check updates, gated on autoCheckOnLaunch setting
   const hasRunStartup = useRef(false);
+  const hasSetAutostart = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally omitting mutate refs; hasRunStartup guard prevents re-execution
   useEffect(() => {
     if (!settings || hasRunStartup.current) return;
@@ -70,9 +71,10 @@ function DesktopApp() {
 
   // Sync autostart system state with setting on startup
   useEffect(() => {
-    if (!settings) return;
+    if (!settings || hasSetAutostart.current) return;
+    hasSetAutostart.current = true;
     (settings.launchAtLogin ? enableAutostart() : disableAutostart()).catch(console.error);
-  }, [settings?.launchAtLogin, settings]);
+  }, [settings]);
 
   const renderContent = () => {
     switch (filterView) {

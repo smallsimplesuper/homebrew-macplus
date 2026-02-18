@@ -54,6 +54,8 @@ pub struct HomebrewCaskIndex {
     pub url_by_token: HashMap<String, String>,
     /// Bundle ID → GitHub "owner/repo" slug, auto-extracted from cask download URLs/homepages
     pub github_repos: HashMap<String, String>,
+    /// Cask token → description text from the cask JSON
+    pub desc_by_token: HashMap<String, String>,
 }
 
 /// Normalize an app name for matching: lowercase, strip ".app" suffix.
@@ -105,6 +107,7 @@ fn build_index(json: &[serde_json::Value]) -> HomebrewCaskIndex {
     let mut all_tokens_by_app_name = HashMap::new();
     let mut url_by_token = HashMap::new();
     let mut github_repos: HashMap<String, String> = HashMap::new();
+    let mut desc_by_token: HashMap<String, String> = HashMap::new();
 
     for cask in json {
         let token = match cask.get("token").and_then(|v| v.as_str()) {
@@ -119,6 +122,13 @@ fn build_index(json: &[serde_json::Value]) -> HomebrewCaskIndex {
 
         let url = cask.get("url").and_then(|v| v.as_str()).map(String::from);
         let sha256 = cask.get("sha256").and_then(|v| v.as_str()).map(String::from);
+
+        // Extract description
+        if let Some(desc) = cask.get("desc").and_then(|v| v.as_str()) {
+            if !desc.is_empty() {
+                desc_by_token.insert(token.to_string(), desc.to_string());
+            }
+        }
 
         // Populate url_by_token for all casks (including "latest")
         if let Some(ref u) = url {
@@ -266,6 +276,7 @@ fn build_index(json: &[serde_json::Value]) -> HomebrewCaskIndex {
         all_tokens_by_app_name,
         url_by_token,
         github_repos,
+        desc_by_token,
     }
 }
 
@@ -376,6 +387,11 @@ impl HomebrewCaskIndex {
         }
 
         None
+    }
+
+    /// Look up the description for a cask by token.
+    pub fn lookup_desc(&self, token: &str) -> Option<&str> {
+        self.desc_by_token.get(token).map(|s| s.as_str())
     }
 
     /// Look up just the cask token for an app, including "latest" casks.

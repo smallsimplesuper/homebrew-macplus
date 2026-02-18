@@ -112,6 +112,10 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_available_updates_app_dismissed ON available_updates(app_id, dismissed_at);
     CREATE INDEX IF NOT EXISTS idx_update_history_status ON update_history(status);
     ",
+    // Migration 9: Add description column for app descriptions
+    "
+    ALTER TABLE apps ADD COLUMN description TEXT;
+    ",
 ];
 
 pub fn run_migrations(db: &mut Database) -> AppResult<()> {

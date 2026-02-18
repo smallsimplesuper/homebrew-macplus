@@ -272,13 +272,17 @@ async fn enrich_release_notes(
     client: &reqwest::Client,
 ) {
     if update.release_notes.is_some() {
+        // Sanitize existing notes
+        if let Some(ref notes) = update.release_notes {
+            update.release_notes = Some(crate::utils::sanitize::sanitize_release_notes(notes));
+        }
         return;
     }
 
     // 1) GitHub: reuses ETag cache, no extra API call if already fetched
     if let Some(ref repo) = context.github_repo {
         if let Some(notes) = github_releases::fetch_release_notes(repo, client).await {
-            update.release_notes = Some(notes);
+            update.release_notes = Some(crate::utils::sanitize::sanitize_release_notes(&notes));
             if update.release_notes_url.is_none() {
                 update.release_notes_url = Some(format!("https://github.com/{}/releases", repo));
             }
@@ -289,7 +293,7 @@ async fn enrich_release_notes(
     // 2) Sparkle: parse <description> from the appcast feed
     if let Some(ref feed_url) = context.sparkle_feed_url {
         if let Some(notes) = sparkle::fetch_sparkle_description(feed_url, client).await {
-            update.release_notes = Some(notes);
+            update.release_notes = Some(crate::utils::sanitize::sanitize_release_notes(&notes));
         }
     }
 }

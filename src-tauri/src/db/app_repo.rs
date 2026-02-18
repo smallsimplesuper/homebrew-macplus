@@ -54,9 +54,19 @@ impl Database {
                     au.available_version, au.source_type,
                     a.homebrew_cask_token, a.sparkle_feed_url, a.obtained_from,
                     a.homebrew_formula_name,
-                    au.release_notes, au.release_notes_url, au.notes
+                    au.release_notes, au.release_notes_url, au.notes,
+                    a.description
              FROM apps a
-             LEFT JOIN available_updates au ON au.app_id = a.id AND au.dismissed_at IS NULL
+             LEFT JOIN (
+                 SELECT au1.* FROM available_updates au1
+                 INNER JOIN (
+                     SELECT app_id, MAX(detected_at) as max_detected
+                     FROM available_updates
+                     WHERE dismissed_at IS NULL
+                     GROUP BY app_id
+                 ) au2 ON au1.app_id = au2.app_id AND au1.detected_at = au2.max_detected
+                 WHERE au1.dismissed_at IS NULL
+             ) au ON au.app_id = a.id
                   AND (a.installed_version IS NULL OR au.available_version != a.installed_version)
              ORDER BY a.display_name COLLATE NOCASE",
         )?;
@@ -82,6 +92,7 @@ impl Database {
                     release_notes: row.get(14)?,
                     release_notes_url: row.get(15)?,
                     update_notes: row.get(16)?,
+                    description: row.get(17)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -95,7 +106,7 @@ impl Database {
             "SELECT id, bundle_id, display_name, app_path, installed_version, bundle_version,
                     icon_cache_path, architectures, install_source, obtained_from,
                     homebrew_cask_token, is_ignored, first_seen_at, last_seen_at, mas_app_id,
-                    homebrew_formula_name
+                    homebrew_formula_name, description
              FROM apps WHERE bundle_id = ?1",
             [bundle_id],
             |row| {
@@ -117,6 +128,7 @@ impl Database {
                     last_seen_at: row.get(13)?,
                     mas_app_id: row.get(14)?,
                     homebrew_formula_name: row.get(15)?,
+                    description: row.get(16)?,
                     update_sources: Vec::new(),
                     available_update: None,
                 })
@@ -238,6 +250,29 @@ impl Database {
                 |row| row.get(0),
             )
             .ok()
+    }
+
+    pub fn update_description(&self, app_id: i64, description: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE apps SET description = ?1 WHERE id = ?2",
+            rusqlite::params![description, app_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get apps that have a cask token but no description.
+    /// Returns (app_id, cask_token, bundle_id, display_name).
+    pub fn get_apps_missing_descriptions(&self) -> AppResult<Vec<(i64, Option<String>, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, homebrew_cask_token, bundle_id, display_name FROM apps WHERE description IS NULL",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
     }
 
     /// Store or update the SHA-256 for a cask token.

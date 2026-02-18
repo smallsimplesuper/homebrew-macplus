@@ -5,6 +5,7 @@ pub mod command;
 pub mod error;
 pub mod http_client;
 pub mod plist_parser;
+pub mod sanitize;
 pub mod sudo_session;
 
 pub use error::{AppError, AppResult};

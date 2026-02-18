@@ -164,48 +164,62 @@ pub async fn get_update_history(
         .join("macplus.db");
     let limit = limit.unwrap_or(50);
 
-    tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open_with_flags(
-            &db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|e| AppError::Custom(format!("open read conn: {e}")))?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT h.id, a.bundle_id, a.display_name, a.icon_cache_path,
-                        h.from_version, h.to_version, h.source_type,
-                        h.status, h.error_message, h.started_at, h.completed_at
-                 FROM update_history h
-                 JOIN apps a ON a.id = h.app_id
-                 ORDER BY h.started_at DESC
-                 LIMIT ?1",
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open_with_flags(
+                &db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
             )
-            .map_err(|e| AppError::Custom(format!("prepare: {e}")))?;
+            .map_err(|e| AppError::Custom(format!("open read conn: {e}")))?;
 
-        let entries = stmt
-            .query_map([limit], |row| {
-                Ok(crate::models::UpdateHistoryEntry {
-                    id: row.get(0)?,
-                    bundle_id: row.get(1)?,
-                    display_name: row.get(2)?,
-                    icon_cache_path: row.get(3)?,
-                    from_version: row.get(4)?,
-                    to_version: row.get(5)?,
-                    source_type: row.get(6)?,
-                    status: row.get(7)?,
-                    error_message: row.get(8)?,
-                    started_at: row.get(9)?,
-                    completed_at: row.get(10)?,
+            conn.busy_timeout(std::time::Duration::from_secs(5))
+                .map_err(|e| AppError::Custom(format!("busy_timeout: {e}")))?;
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT h.id, a.bundle_id, a.display_name, a.icon_cache_path,
+                            h.from_version, h.to_version, h.source_type,
+                            h.status, h.error_message, h.started_at, h.completed_at
+                     FROM update_history h
+                     JOIN apps a ON a.id = h.app_id
+                     ORDER BY h.started_at DESC
+                     LIMIT ?1",
+                )
+                .map_err(|e| AppError::Custom(format!("prepare: {e}")))?;
+
+            let entries = stmt
+                .query_map([limit], |row| {
+                    Ok(crate::models::UpdateHistoryEntry {
+                        id: row.get(0)?,
+                        bundle_id: row.get(1)?,
+                        display_name: row.get(2)?,
+                        icon_cache_path: row.get(3)?,
+                        from_version: row.get(4)?,
+                        to_version: row.get(5)?,
+                        source_type: row.get(6)?,
+                        status: row.get(7)?,
+                        error_message: row.get(8)?,
+                        started_at: row.get(9)?,
+                        completed_at: row.get(10)?,
+                    })
                 })
-            })
-            .map_err(|e| AppError::Custom(format!("query: {e}")))?
-            .filter_map(|r| r.ok())
-            .collect();
+                .map_err(|e| AppError::Custom(format!("query: {e}")))?
+                .filter_map(|r| r.ok())
+                .collect();
 
-        Ok(entries)
-    })
-    .await
-    .map_err(|e| AppError::Custom(e.to_string()))?
+            Ok(entries)
+        }),
+    )
+    .await;
+
+    match result {
+        Ok(join_result) => join_result.map_err(|e| AppError::Custom(e.to_string()))?,
+        Err(_) => {
+            // Timeout — return empty vec so frontend's refetch cycle retries
+            log::warn!("get_update_history timed out after 10s");
+            Ok(Vec::new())
+        }
+    }
 }

@@ -83,6 +83,7 @@ pub struct AppSummary {
     pub release_notes: Option<String>,
     pub release_notes_url: Option<String>,
     pub update_notes: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +105,7 @@ pub struct AppDetail {
     pub is_ignored: bool,
     pub first_seen_at: Option<String>,
     pub last_seen_at: Option<String>,
+    pub description: Option<String>,
     pub update_sources: Vec<UpdateSourceInfo>,
     pub available_update: Option<AvailableUpdateInfo>,
 }

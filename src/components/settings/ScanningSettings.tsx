@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
-import { AlertCircle, ChevronRight, FolderOpen, RefreshCw, X } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, ChevronRight, FolderOpen, X } from "lucide-react";
 import { CustomSelect } from "@/components/shared/CustomSelect";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
-import { checkAllUpdates, checkPathsExist, triggerFullScan } from "@/lib/tauri-commands";
+import { checkPathsExist } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 import { useAppFilterStore } from "@/stores/appFilterStore";
 import type { AppSettings } from "@/types/settings";
@@ -24,8 +23,6 @@ const SCAN_DEPTH_OPTIONS = [
 export function ScanningSettings() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<string | null>(null);
 
   const { data: pathStatus } = useQuery({
     queryKey: ["path-status", settings?.scanLocations],
@@ -66,25 +63,6 @@ export function ScanningSettings() {
     handleUpdate({
       scanLocations: settings.scanLocations.filter((l) => l !== location),
     });
-  };
-
-  const [scanPhase, setScanPhase] = useState<"scanning" | "checking" | null>(null);
-
-  const handleRescan = async () => {
-    setIsScanning(true);
-    setScanResult(null);
-    setScanPhase("scanning");
-    try {
-      const count = await triggerFullScan();
-      setScanPhase("checking");
-      const updates = await checkAllUpdates();
-      setScanResult(`Found ${count} apps · ${updates} update${updates === 1 ? "" : "s"} available`);
-    } catch {
-      setScanResult("Scan failed");
-    } finally {
-      setIsScanning(false);
-      setScanPhase(null);
-    }
   };
 
   return (
@@ -177,37 +155,6 @@ export function ScanningSettings() {
           onChange={(value) => handleUpdate({ scanDepth: value })}
           options={SCAN_DEPTH_OPTIONS}
         />
-      </div>
-
-      {/* Rescan */}
-      <div className="rounded-lg border border-border bg-background px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-foreground">Rescan</p>
-            <p className="text-xs text-muted-foreground">
-              Scan all locations for installed apps now
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleRescan}
-            disabled={isScanning}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5",
-              "bg-primary text-xs font-medium text-primary-foreground",
-              "transition-colors hover:bg-primary/90",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", isScanning && "animate-spin")} />
-            {scanPhase === "checking"
-              ? "Checking updates..."
-              : isScanning
-                ? "Scanning..."
-                : "Scan Now"}
-          </button>
-        </div>
-        {scanResult && <p className="mt-2 text-xs text-muted-foreground">{scanResult}</p>}
       </div>
 
       {/* Ignored apps link */}

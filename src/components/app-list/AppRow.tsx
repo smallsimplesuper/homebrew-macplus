@@ -1,13 +1,7 @@
-import {
-  AlertTriangle,
-  ArrowRight,
-  Check,
-  Download,
-  ExternalLink,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { open } from "@tauri-apps/plugin-shell";
+import { AlertTriangle, ArrowRight, Check, Download, Eye, EyeOff, Globe } from "lucide-react";
 import { memo } from "react";
+import { InfoPopover } from "@/components/shared/InfoPopover";
 import { InlineUpdateProgress, RelaunchButton } from "@/components/shared/InlineUpdateProgress";
 import { useToggleIgnored } from "@/hooks/useApps";
 import { useExecuteUpdate } from "@/hooks/useUpdateExecution";
@@ -114,6 +108,7 @@ export const AppRow = memo(
               <EyeOff className="h-3.5 w-3.5" />
             </button>
           )}
+          <InfoPopover app={app} />
           {relaunch ? (
             <RelaunchButton
               bundleId={relaunch.bundleId}
@@ -129,30 +124,57 @@ export const AppRow = memo(
               totalBytes={progress.totalBytes}
             />
           ) : app.hasUpdate ? (
-            <button
-              type="button"
-              onClick={handleUpdate}
-              disabled={executeUpdate.isPending}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5",
-                "bg-primary text-primary-foreground",
-                "text-xs font-medium",
-                "transition-colors hover:bg-primary/90",
-                "disabled:opacity-50",
-              )}
-            >
-              {isDelegatedUpdate(app) ? (
-                <>
-                  <ExternalLink className="size-3" />
-                  Open Updater
-                </>
-              ) : (
-                <>
-                  <Download className="size-3" />
-                  Update
-                </>
-              )}
-            </button>
+            isDelegatedUpdate(app) ? (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleUpdate}
+                  disabled={executeUpdate.isPending}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5",
+                    "bg-primary text-primary-foreground",
+                    "text-xs font-medium",
+                    "transition-colors hover:bg-primary/90",
+                    "disabled:opacity-50",
+                  )}
+                >
+                  Open App
+                </button>
+                {app.releaseNotesUrl && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      open(app.releaseNotesUrl!);
+                    }}
+                    className={cn(
+                      "flex shrink-0 items-center justify-center rounded-md",
+                      "h-7 w-7 text-muted-foreground",
+                      "transition-colors hover:bg-muted hover:text-foreground",
+                    )}
+                    title="Release notes"
+                  >
+                    <Globe className="size-3" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleUpdate}
+                disabled={executeUpdate.isPending}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5",
+                  "bg-primary text-primary-foreground",
+                  "text-xs font-medium",
+                  "transition-colors hover:bg-primary/90",
+                  "disabled:opacity-50",
+                )}
+              >
+                <Download className="size-3" />
+                Update
+              </button>
+            )
           ) : (
             <span className="flex items-center gap-1 text-footnote text-muted-foreground/60">
               <Check className="size-3" />

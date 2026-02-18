@@ -267,6 +267,24 @@ pub async fn run_update_check(
     // Backfill cask tokens for apps that match the index but lack a token
     if let Some(ref index) = cask_index {
         backfill_cask_tokens(db, index).await;
+
+        // Backfill descriptions from the cask index
+        let db_guard = db.lock().await;
+        if let Ok(apps) = db_guard.get_apps_missing_descriptions() {
+            let mut desc_count = 0usize;
+            for (app_id, cask_token, _, _) in &apps {
+                if let Some(token) = cask_token {
+                    if let Some(desc) = index.lookup_desc(token) {
+                        let _ = db_guard.update_description(*app_id, desc);
+                        desc_count += 1;
+                    }
+                }
+            }
+            if desc_count > 0 {
+                log::info!("Backfilled descriptions for {} apps", desc_count);
+            }
+        }
+        drop(db_guard);
     }
 
     // Load GitHub repo mappings from database once for all apps

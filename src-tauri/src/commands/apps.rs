@@ -42,7 +42,7 @@ pub async fn get_app_detail(
                 "SELECT id, bundle_id, display_name, app_path, installed_version, bundle_version,
                         icon_cache_path, architectures, install_source, obtained_from,
                         homebrew_cask_token, is_ignored, first_seen_at, last_seen_at, mas_app_id,
-                        homebrew_formula_name
+                        homebrew_formula_name, description
                  FROM apps WHERE bundle_id = ?1",
                 [&bundle_id],
                 |row| {
@@ -64,6 +64,7 @@ pub async fn get_app_detail(
                         last_seen_at: row.get(13)?,
                         mas_app_id: row.get(14)?,
                         homebrew_formula_name: row.get(15)?,
+                        description: row.get(16)?,
                         update_sources: Vec::new(),
                         available_update: None,
                     })

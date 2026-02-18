@@ -23,6 +23,14 @@ impl Database {
     }
 
     pub fn upsert_available_update(&self, app_id: i64, update: &UpdateInfo) -> AppResult<()> {
+        // Clean up stale undismissed updates for a different version
+        self.conn.execute(
+            "DELETE FROM available_updates WHERE app_id = ?1 AND dismissed_at IS NULL AND available_version != ?2",
+            rusqlite::params![app_id, update.available_version],
+        )?;
+
+        let clean_notes = update.release_notes.as_deref().map(crate::utils::sanitize::sanitize_release_notes);
+
         self.conn.execute(
             "INSERT INTO available_updates (app_id, source_type, available_version, release_notes_url, download_url, release_notes, is_paid_upgrade, notes)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -39,7 +47,7 @@ impl Database {
                 update.available_version,
                 update.release_notes_url,
                 update.download_url,
-                update.release_notes,
+                clean_notes,
                 update.is_paid_upgrade as i32,
                 update.notes,
             ],
