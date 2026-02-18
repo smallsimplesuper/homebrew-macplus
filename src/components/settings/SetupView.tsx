@@ -1,3 +1,4 @@
+import { isPermissionGranted } from "@tauri-apps/plugin-notification";
 import {
   Beer,
   Bell,
@@ -106,13 +107,23 @@ export function SetupView() {
   const [error, setError] = useState(false);
   const [configuringAskpass, setConfiguringAskpass] = useState(false);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(false);
-    checkSetupStatus()
-      .then(setStatus)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
+    try {
+      const result = await checkSetupStatus();
+      try {
+        const notifGranted = await isPermissionGranted();
+        result.permissions.notifications = notifGranted;
+      } catch {
+        // Fall back to plist-based check
+      }
+      setStatus(result);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

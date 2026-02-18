@@ -41,6 +41,7 @@ impl AppDetector for SpotlightDetector {
                 !line.contains("/Contents/")
                     && !line.contains("/Library/Apple/")
                     && !line.starts_with("/System/Library/")
+                    && !line.starts_with("/System/Applications/")
             })
             .filter_map(|line| {
                 let app_path = Path::new(line);

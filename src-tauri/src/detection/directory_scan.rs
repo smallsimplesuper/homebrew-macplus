@@ -104,7 +104,6 @@ impl AppDetector for DirectoryScanDetector {
     async fn detect(&self) -> AppResult<Vec<DetectedApp>> {
         let mut dirs = vec![
             PathBuf::from("/Applications"),
-            PathBuf::from("/System/Applications"),
         ];
 
         if let Some(home) = dirs::home_dir() {
@@ -177,7 +176,6 @@ impl DirectoryScanDetector {
     pub async fn detect_with_stats(&self) -> AppResult<(Vec<DetectedApp>, Vec<ScanDirResult>)> {
         let mut dirs = vec![
             PathBuf::from("/Applications"),
-            PathBuf::from("/System/Applications"),
         ];
 
         if let Some(home) = dirs::home_dir() {

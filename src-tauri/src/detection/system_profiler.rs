@@ -48,7 +48,7 @@ impl AppDetector for SystemProfilerDetector {
                 }
 
                 // Skip system internals
-                if path_str.starts_with("/System/Library/") {
+                if path_str.starts_with("/System/Library/") || path_str.starts_with("/System/Applications/") {
                     return None;
                 }
 

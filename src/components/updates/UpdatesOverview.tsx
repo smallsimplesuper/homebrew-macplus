@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-shell";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -21,6 +21,7 @@ import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUp
 import { usePermissionsGranted } from "@/components/shared/PermissionBanner";
 import { useApps, useFullScan, useToggleIgnored } from "@/hooks/useApps";
 import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
+import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { useExecuteBulkUpdate, useExecuteUpdate } from "@/hooks/useUpdateExecution";
 import { formatDownloadProgress } from "@/lib/format-bytes";
 import { getUpdateHistory } from "@/lib/tauri-commands";
@@ -28,6 +29,7 @@ import { isDelegatedUpdate } from "@/lib/update-utils";
 import { cn } from "@/lib/utils";
 import { useUpdateProgressStore } from "@/stores/updateProgressStore";
 import type { AppSummary } from "@/types/app";
+import type { UpdateExecuteComplete } from "@/types/update";
 
 // --- Categorization ---
 
@@ -306,10 +308,18 @@ function formatRelativeTime(dateStr: string | null): string {
 }
 
 function RecentlyUpdated() {
+  const queryClient = useQueryClient();
+
   const { data: entries } = useQuery({
     queryKey: ["update-history-recent"],
     queryFn: () => getUpdateHistory(20),
-    refetchInterval: 5 * 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
+  useTauriEvent<UpdateExecuteComplete>("update-execute-complete", () => {
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["update-history-recent"] });
+    }, 2000);
   });
 
   const [clearedAt, setClearedAt] = useState<string | null>(
