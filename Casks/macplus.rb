@@ -1,6 +1,6 @@
 cask "macplus" do
-  version "0.2.40"
-  sha256 "ac81cd86fc789a5f236b713785c9030112bec1dd50e2e381a083fef57d308b04"
+  version "0.2.41"
+  sha256 "5eac29e1bbcade9e8c24da3506b288ed4fc3baeef27e43716e9929fef0687eeb"
 
   url "https://github.com/smallsimplesuper/macplus/releases/download/v#{version}/macPlus_#{version}_universal.dmg"
   name "macPlus"
