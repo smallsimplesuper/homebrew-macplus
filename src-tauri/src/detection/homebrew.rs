@@ -28,6 +28,12 @@ async fn find_app_by_name(app_name: &str) -> Option<PathBuf> {
         .filter(|p| p.exists())
 }
 
+/// Cask tokens for macOS system components that Homebrew tracks but cannot
+/// actually update. These must never appear in the app list or update UI.
+const SYSTEM_CASK_BLOCKLIST: &[&str] = &[
+    "toolreleases", // "System Events" — managed by macOS
+];
+
 pub struct HomebrewDetector;
 
 #[async_trait]
@@ -92,6 +98,9 @@ impl AppDetector for HomebrewDetector {
 
         for cask in &casks {
             let token = cask["token"].as_str().unwrap_or_default();
+            if SYSTEM_CASK_BLOCKLIST.contains(&token) {
+                continue;
+            }
             let name = cask["name"]
                 .as_array()
                 .and_then(|a| a.first())

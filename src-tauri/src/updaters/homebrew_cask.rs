@@ -8,6 +8,10 @@ use crate::models::{AppSource, UpdateInfo, UpdateSourceType};
 use crate::utils::brew::brew_path;
 use crate::utils::AppResult;
 
+/// Cask tokens for macOS system components that Homebrew tracks but cannot
+/// actually update. Filtered out of the outdated map as a safety net.
+const SYSTEM_CASK_BLOCKLIST: &[&str] = &["toolreleases"];
+
 pub struct HomebrewCaskChecker;
 
 #[async_trait]
@@ -126,7 +130,8 @@ pub fn fetch_brew_outdated() -> HashMap<String, BrewOutdatedCask> {
             .or_else(|| c.get("name").and_then(|v| v.as_str()));
 
         let token = match token {
-            Some(t) => t.to_string(),
+            Some(t) if !SYSTEM_CASK_BLOCKLIST.contains(&t) => t.to_string(),
+            Some(_) => continue, // system cask, skip
             None => continue,
         };
 

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::executor::sparkle_executor;
 use crate::updaters::github_releases::check_github_release;
@@ -371,7 +371,7 @@ pub async fn execute_self_update(
 }
 
 #[tauri::command]
-pub async fn relaunch_self(_app_handle: AppHandle) -> Result<(), AppError> {
+pub async fn relaunch_self(app_handle: AppHandle) -> Result<(), AppError> {
     let exe = std::env::current_exe()
         .map_err(|e| AppError::CommandFailed(format!("Failed to find current executable: {}", e)))?;
     let app_bundle = exe
@@ -384,7 +384,7 @@ pub async fn relaunch_self(_app_handle: AppHandle) -> Result<(), AppError> {
 
     let script_path = format!("/tmp/macplus-relaunch-{}.sh", pid);
     let script_content = format!(
-        "#!/bin/bash\nfor i in $(seq 1 50); do\n  kill -0 {} 2>/dev/null || break\n  sleep 0.1\ndone\nkill -0 {} 2>/dev/null && kill -9 {} 2>/dev/null\nsleep 0.5\nopen '{}'\nrm -f \"$0\"\n",
+        "#!/bin/bash\nfor i in $(seq 1 100); do\n  kill -0 {} 2>/dev/null || break\n  sleep 0.1\ndone\nkill -0 {} 2>/dev/null && kill -9 {} 2>/dev/null\nsleep 1\nopen '{}'\nrm -f \"$0\"\n",
         pid, pid, pid, app_path_str
     );
     std::fs::write(&script_path, &script_content)
@@ -413,6 +413,15 @@ pub async fn relaunch_self(_app_handle: AppHandle) -> Result<(), AppError> {
     cmd.spawn()
         .map_err(|e| AppError::CommandFailed(format!("Failed to spawn relaunch script: {}", e)))?;
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Tear down Tauri state so macOS doesn't see the app as still active
+    if let Some(tray) = app_handle.tray_by_id("main-tray") {
+        let _ = tray.set_visible(false);
+    }
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.destroy();
+    }
+    app_handle.cleanup_before_exit();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
     std::process::exit(0);
 }
