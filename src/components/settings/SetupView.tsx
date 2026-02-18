@@ -117,10 +117,6 @@ export function SetupView() {
 
   useEffect(() => {
     refresh();
-    // Re-check on window focus (user may have just granted permissions)
-    const onFocus = () => refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
   const handleInstallHomebrew = () => {
@@ -225,7 +221,11 @@ export function SetupView() {
             ok={status.permissions.automation}
             label="Automation"
             description={
-              status.permissions.automation ? "Granted" : "Required to quit apps before updating"
+              status.permissions.automationState === "granted"
+                ? "Granted"
+                : status.permissions.automationState === "denied"
+                  ? "Denied — open System Settings to grant"
+                  : "Not yet requested — use the banner above to enable"
             }
             action={
               !status.permissions.automation ? (

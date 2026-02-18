@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUpdateProgress";
+import { usePermissionsGranted } from "@/components/shared/PermissionBanner";
 import { useApps, useFullScan, useToggleIgnored } from "@/hooks/useApps";
 import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
 import { useExecuteBulkUpdate, useExecuteUpdate } from "@/hooks/useUpdateExecution";
@@ -376,6 +377,7 @@ export function UpdatesOverview() {
   const executeUpdate = useExecuteUpdate();
   const executeBulk = useExecuteBulkUpdate();
   const hasAnyProgress = useUpdateProgressStore((s) => Object.keys(s.progress).length > 0);
+  const allPermissionsGranted = usePermissionsGranted();
 
   const updatableApps = apps?.filter((app) => app.hasUpdate && !app.isIgnored) ?? [];
   const updateCount = updatableApps.length;
@@ -458,7 +460,8 @@ export function UpdatesOverview() {
           <button
             type="button"
             onClick={handleScanSystem}
-            disabled={fullScan.isPending || checkAll.isPending}
+            disabled={!allPermissionsGranted || fullScan.isPending || checkAll.isPending}
+            title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
             className={cn(
               "flex items-center gap-1.5 rounded-lg",
               "border border-border bg-background px-3 py-1.5",
@@ -473,7 +476,8 @@ export function UpdatesOverview() {
           <button
             type="button"
             onClick={handleCheckNow}
-            disabled={checkAll.isPending || fullScan.isPending}
+            disabled={!allPermissionsGranted || checkAll.isPending || fullScan.isPending}
+            title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
             className={cn(
               "flex items-center gap-1.5 rounded-lg",
               "border border-border bg-background px-3 py-1.5",
@@ -489,7 +493,8 @@ export function UpdatesOverview() {
             <button
               type="button"
               onClick={handleUpdateAll}
-              disabled={executeBulk.isPending || hasAnyProgress}
+              disabled={!allPermissionsGranted || executeBulk.isPending || hasAnyProgress}
+              title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
               className={cn(
                 "flex items-center gap-1.5 rounded-lg",
                 "bg-primary px-3 py-1.5",

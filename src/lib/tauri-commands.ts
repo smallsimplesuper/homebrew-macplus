@@ -69,6 +69,7 @@ export async function getAppIcon(appPath: string, bundleId: string): Promise<str
 
 export interface PermissionsStatus {
   automation: boolean;
+  automationState: "granted" | "denied" | "unknown";
   fullDiskAccess: boolean;
   appManagement: boolean;
   notifications: boolean;
@@ -76,6 +77,14 @@ export interface PermissionsStatus {
 
 export async function getPermissionsStatus(): Promise<PermissionsStatus> {
   return invoke<PermissionsStatus>("get_permissions_status");
+}
+
+export async function getPermissionsPassive(): Promise<PermissionsStatus> {
+  return invoke<PermissionsStatus>("get_permissions_passive");
+}
+
+export async function triggerAutomationPermission(): Promise<boolean> {
+  return invoke<boolean>("trigger_automation_permission");
 }
 
 export async function openSystemPreferences(pane: string): Promise<void> {

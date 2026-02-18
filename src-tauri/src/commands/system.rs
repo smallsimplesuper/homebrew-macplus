@@ -44,6 +44,7 @@ async fn ping_url(client: &reqwest::Client, url: &str, timeout: std::time::Durat
 #[serde(rename_all = "camelCase")]
 pub struct PermissionsStatus {
     pub automation: bool,
+    pub automation_state: String,
     pub full_disk_access: bool,
     pub app_management: bool,
     pub notifications: bool,
@@ -51,23 +52,54 @@ pub struct PermissionsStatus {
 
 #[tauri::command]
 pub async fn get_permissions_status() -> Result<PermissionsStatus, AppError> {
-    let automation = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        tokio::task::spawn_blocking(permissions::has_automation_permission),
-    )
-    .await
-    .unwrap_or(Ok(false))
-    .unwrap_or(false);
+    let automation_state = tokio::task::spawn_blocking(permissions::check_automation_passive)
+        .await
+        .unwrap_or(permissions::PermissionState::Unknown);
     let full_disk_access = permissions::has_full_disk_access();
     let app_management = permissions::has_app_management();
     let notifications = permissions::has_notification_permission("com.macplus.app");
 
     Ok(PermissionsStatus {
-        automation,
+        automation: automation_state.is_granted(),
+        automation_state: automation_state.as_str().to_string(),
         full_disk_access,
         app_management,
         notifications,
     })
+}
+
+/// Lightweight passive-only permission check. No dialogs, no connectivity checks,
+/// no Homebrew detection. Used by the PermissionBanner on mount and visibility changes.
+#[tauri::command]
+pub async fn get_permissions_passive() -> Result<PermissionsStatus, AppError> {
+    let automation_state = tokio::task::spawn_blocking(permissions::check_automation_passive)
+        .await
+        .unwrap_or(permissions::PermissionState::Unknown);
+    let full_disk_access = permissions::has_full_disk_access();
+    let app_management = permissions::has_app_management();
+    let notifications = permissions::has_notification_permission("com.macplus.app");
+
+    Ok(PermissionsStatus {
+        automation: automation_state.is_granted(),
+        automation_state: automation_state.as_str().to_string(),
+        full_disk_access,
+        app_management,
+        notifications,
+    })
+}
+
+/// Intentionally trigger the macOS Automation permission dialog.
+/// Called ONLY when the user clicks "Enable" for Automation in the PermissionBanner.
+#[tauri::command]
+pub async fn trigger_automation_permission() -> Result<bool, AppError> {
+    let granted = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::task::spawn_blocking(permissions::trigger_automation_permission),
+    )
+    .await
+    .unwrap_or(Ok(false))
+    .unwrap_or(false);
+    Ok(granted)
 }
 
 #[tauri::command]
@@ -190,7 +222,7 @@ pub async fn check_setup_status(
 
     let result = tokio::time::timeout(timeout_dur, async {
         // Run independent checks in parallel
-        let (brew_result, automation, xcode, fda, app_mgmt, notif, connectivity) = tokio::join!(
+        let (brew_result, automation_state, xcode, fda, app_mgmt, notif, connectivity) = tokio::join!(
             // Homebrew: version + path (blocking shell call)
             tokio::task::spawn_blocking(|| {
                 let brew_installed = brew::brew_path().is_some();
@@ -202,16 +234,13 @@ pub async fn check_setup_status(
                 let brew_path_str = brew::brew_path().map(|p| p.display().to_string());
                 (brew_installed, brew_version, brew_path_str)
             }),
-            // Automation permission (blocking osascript)
-            tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                tokio::task::spawn_blocking(permissions::has_automation_permission),
-            ),
+            // Automation permission (passive TCC.db read — no dialog)
+            tokio::task::spawn_blocking(permissions::check_automation_passive),
             // Xcode CLT (blocking shell call)
             tokio::task::spawn_blocking(utils::is_xcode_clt_installed),
             // Full Disk Access (fast file check)
             async { permissions::has_full_disk_access() },
-            // App Management (fast file check)
+            // App Management (fast POSIX check)
             async { permissions::has_app_management() },
             // Notification permission (blocking plist check)
             tokio::task::spawn_blocking(|| {
@@ -222,7 +251,7 @@ pub async fn check_setup_status(
         );
 
         let (brew_installed, brew_version, brew_path_str) = brew_result.unwrap_or((false, None, None));
-        let automation = automation.unwrap_or(Ok(false)).unwrap_or(false);
+        let automation_state = automation_state.unwrap_or(permissions::PermissionState::Unknown);
         let xcode_clt = xcode.unwrap_or(false);
         let notifications = notif.unwrap_or(false);
 
@@ -237,7 +266,8 @@ pub async fn check_setup_status(
             askpass_path: ap_path,
             xcode_clt_installed: xcode_clt,
             permissions: PermissionsStatus {
-                automation,
+                automation: automation_state.is_granted(),
+                automation_state: automation_state.as_str().to_string(),
                 full_disk_access: fda,
                 app_management: app_mgmt,
                 notifications,

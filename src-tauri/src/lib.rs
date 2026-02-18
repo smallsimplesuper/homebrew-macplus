@@ -113,6 +113,8 @@ pub fn run() {
             commands::system::reveal_in_finder,
             commands::system::get_app_icon,
             commands::system::get_permissions_status,
+            commands::system::get_permissions_passive,
+            commands::system::trigger_automation_permission,
             commands::system::open_system_preferences,
             commands::system::check_setup_status,
             commands::system::ensure_askpass_helper,

@@ -1,5 +1,28 @@
+use std::ffi::CString;
 use std::path::Path;
 use std::process::Command;
+
+/// Three-state permission result for UI display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionState {
+    Granted,
+    Denied,
+    Unknown,
+}
+
+impl PermissionState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Granted => "granted",
+            Self::Denied => "denied",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn is_granted(&self) -> bool {
+        matches!(self, Self::Granted)
+    }
+}
 
 /// Check if the app has Full Disk Access by testing read access to a protected path.
 pub fn has_full_disk_access() -> bool {
@@ -7,13 +30,48 @@ pub fn has_full_disk_access() -> bool {
         && std::fs::metadata("/Library/Application Support/com.apple.TCC/TCC.db").is_ok()
 }
 
-/// Check if the app has Automation (Apple Events) permission by running a harmless
-/// osascript call to System Events. Returns true if macOS grants it.
+/// Passively check Automation (Apple Events) permission by reading the user TCC database.
+/// Does NOT trigger any macOS permission dialog.
+pub fn check_automation_passive() -> PermissionState {
+    let db_path = match dirs::home_dir() {
+        Some(h) => h.join("Library/Application Support/com.apple.TCC/TCC.db"),
+        None => return PermissionState::Unknown,
+    };
+
+    if !db_path.exists() {
+        return PermissionState::Unknown;
+    }
+
+    // Open read-only with SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = match rusqlite::Connection::open_with_flags(&db_path, flags) {
+        Ok(c) => c,
+        Err(_) => return PermissionState::Unknown,
+    };
+
+    // auth_value: 2 = allowed, 0 = denied
+    let result = conn.query_row(
+        "SELECT auth_value FROM access WHERE service = 'kTCCServiceAppleEvents' \
+         AND client = 'com.macplus.app' \
+         AND indirect_object_identifier = 'com.apple.systemevents'",
+        [],
+        |row| row.get::<_, i64>(0),
+    );
+
+    match result {
+        Ok(2) => PermissionState::Granted,
+        Ok(_) => PermissionState::Denied,
+        Err(_) => PermissionState::Unknown,
+    }
+}
+
+/// Intentionally trigger the macOS Automation permission dialog by running an osascript probe.
+/// Call ONLY when the user clicks "Enable" for Automation.
 ///
 /// Uses spawn + poll with a 3-second deadline instead of blocking `output()`,
 /// which can hang indefinitely on macOS 26 (Tahoe). If the process doesn't
 /// complete in time, it is killed to prevent thread leaks.
-pub fn has_automation_permission() -> bool {
+pub fn trigger_automation_permission() -> bool {
     let mut child = match Command::new("osascript")
         .args(["-e", "tell application \"System Events\" to return name of first process"])
         .stdout(std::process::Stdio::null())
@@ -41,20 +99,8 @@ pub fn has_automation_permission() -> bool {
     }
 }
 
-/// Check if the app has notification permission via macOS UNUserNotificationCenter.
-/// Falls back to checking the notification settings database.
+/// Check if the app has notification permission via macOS notification center prefs.
 pub fn has_notification_permission(bundle_id: &str) -> bool {
-    // Use `defaults read` to check the notification center prefs for our bundle ID.
-    // On macOS 13+, the notification center stores per-app flags.
-    let output = Command::new("defaults")
-        .args(["read", "com.apple.notificationcenterui"])
-        .output();
-    // If we can't read the plist, fall back to a heuristic:
-    // try sending a test notification — if it doesn't error, permission is likely granted.
-    // For now, use a simpler approach: check the UNNotificationSettings via osascript.
-
-    // Simpler approach: check the notification center database directly.
-    // The permission value 2 = authorized, 1 = denied, 0 = not determined.
     let db_path = dirs::home_dir()
         .map(|h| h.join("Library/Preferences/com.apple.ncprefs.plist"));
     if let Some(ref path) = db_path {
@@ -79,20 +125,12 @@ pub fn has_notification_permission(bundle_id: &str) -> bool {
             }
         }
     }
-    // If not found in prefs, assume not determined (treat as not granted)
-    drop(output);
     false
 }
 
-/// Check if the app has App Management permission by testing write access
-/// to a known path in /Applications.
+/// Check if the app has App Management permission using POSIX access() check.
+/// Does NOT trigger any macOS permission dialog — just tests write access to /Applications.
 pub fn has_app_management() -> bool {
-    let test_path = Path::new("/Applications/.macplus_permission_test");
-    match std::fs::File::create(test_path) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(test_path);
-            true
-        }
-        Err(_) => false,
-    }
+    let path = CString::new("/Applications").unwrap();
+    unsafe { libc::access(path.as_ptr(), libc::W_OK) == 0 }
 }

@@ -27,7 +27,7 @@ import { useToastNotifications } from "@/hooks/useToastNotifications";
 import { useUpdateProgressListener } from "@/hooks/useUpdateProgress";
 import { useWindowFocus, useWindowMode } from "@/hooks/useWindowMode";
 import { springs } from "@/lib/animations";
-import { checkSetupStatus, executeUpdate } from "@/lib/tauri-commands";
+import { executeUpdate } from "@/lib/tauri-commands";
 import { useAppFilterStore } from "@/stores/appFilterStore";
 import { useUIStore } from "@/stores/uiStore";
 
@@ -73,21 +73,6 @@ function DesktopApp() {
     if (!settings) return;
     (settings.launchAtLogin ? enableAutostart() : disableAutostart()).catch(console.error);
   }, [settings?.launchAtLogin, settings]);
-
-  // First-run: auto-navigate to Setup if critical issues detected
-  useEffect(() => {
-    checkSetupStatus()
-      .then((status) => {
-        const criticalIssue = !status.permissions.automation && !status.permissions.appManagement;
-        if (criticalIssue) {
-          useAppFilterStore.getState().setFilterView("settings");
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("navigate-settings-tab", { detail: "setup" }));
-          }, 100);
-        }
-      })
-      .catch((e) => console.error("Setup status check failed:", e));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderContent = () => {
     switch (filterView) {
