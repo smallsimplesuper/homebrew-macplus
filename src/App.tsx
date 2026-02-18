@@ -4,7 +4,7 @@ import {
   enable as enableAutostart,
 } from "@tauri-apps/plugin-autostart";
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Toaster } from "sonner";
 import { AppDetailSheet } from "@/components/app-detail/AppDetailSheet";
 import { AppListView } from "@/components/app-list/AppListView";
@@ -89,12 +89,6 @@ function DesktopApp() {
       .catch((e) => console.error("Setup status check failed:", e));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isRefreshing = fullScan.isPending || checkUpdates.isPending;
-
-  const handleRefresh = useCallback(() => {
-    checkUpdates.mutate();
-  }, [checkUpdates]);
-
   const renderContent = () => {
     switch (filterView) {
       case "updates":
@@ -115,8 +109,6 @@ function DesktopApp() {
       appCount={apps?.length ?? 0}
       updateCount={updateCount}
       ignoredCount={ignoredCount}
-      onRefresh={handleRefresh}
-      isRefreshing={isRefreshing}
     >
       <PermissionBanner />
       <SelfUpdateBanner />

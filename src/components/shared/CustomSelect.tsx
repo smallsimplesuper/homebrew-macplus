@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -39,11 +39,7 @@ export function CustomSelect<T extends string | number>({
 
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (
-        triggerRef.current?.contains(target) ||
-        dropdownRef.current?.contains(target)
-      )
-        return;
+      if (triggerRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
       setOpen(false);
     };
 

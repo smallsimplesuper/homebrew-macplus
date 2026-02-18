@@ -1,10 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Eye, EyeOff, FolderOpen, Play, RefreshCw, X } from "lucide-react";
+import { Bug, Eye, EyeOff, FolderOpen, Play, RefreshCw, X } from "lucide-react";
+import { useState } from "react";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { useAppDetail, useToggleIgnored } from "@/hooks/useApps";
 import { useCheckSingleUpdate } from "@/hooks/useAppUpdates";
 import { springs } from "@/lib/animations";
-import { openApp, revealInFinder } from "@/lib/tauri-commands";
+import type { UpdateCheckDiagnostic } from "@/lib/tauri-commands";
+import { debugUpdateCheck, openApp, revealInFinder } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/uiStore";
 import { AppInfoSection } from "./AppInfoSection";
@@ -36,6 +38,8 @@ export function AppDetailSheet() {
   const { data: detail, isLoading } = useAppDetail(selectedAppId);
   const toggleIgnored = useToggleIgnored();
   const checkUpdate = useCheckSingleUpdate();
+  const [debugResult, setDebugResult] = useState<UpdateCheckDiagnostic | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
 
   const handleClose = () => setDetailOpen(false);
 
@@ -54,6 +58,20 @@ export function AppDetailSheet() {
   const handleCheckUpdate = () => {
     if (detail?.bundleId) {
       checkUpdate.mutate(detail.bundleId);
+    }
+  };
+
+  const handleDebug = async () => {
+    if (detail?.bundleId) {
+      setDebugLoading(true);
+      try {
+        const result = await debugUpdateCheck(detail.bundleId);
+        setDebugResult(result);
+      } catch (e) {
+        console.error("Debug check failed:", e);
+      } finally {
+        setDebugLoading(false);
+      }
     }
   };
 
@@ -223,7 +241,58 @@ export function AppDetailSheet() {
                       </>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleDebug}
+                    disabled={debugLoading}
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-lg",
+                      "border border-border bg-background px-3 py-2",
+                      "text-xs font-medium text-foreground",
+                      "transition-colors hover:bg-muted",
+                      "disabled:opacity-50 disabled:cursor-not-allowed",
+                      "col-span-2",
+                    )}
+                  >
+                    <Bug className={cn("h-3.5 w-3.5", debugLoading && "animate-spin")} />
+                    Debug Update Check
+                  </button>
                 </div>
+
+                {/* Debug output */}
+                {debugResult && (
+                  <div className="rounded-lg border border-border bg-muted/50 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground">Debug Results</p>
+                    <div className="space-y-1 text-caption">
+                      <p className="text-muted-foreground">
+                        Version: {debugResult.installedVersion ?? "unknown"} | Source:{" "}
+                        {debugResult.installSource}
+                      </p>
+                      {debugResult.homebrewCaskToken && (
+                        <p className="text-muted-foreground">
+                          Cask token: {debugResult.homebrewCaskToken}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      {debugResult.checkersTried.map((c) => (
+                        <div
+                          key={c.source}
+                          className={cn(
+                            "flex items-center justify-between text-caption px-2 py-0.5 rounded",
+                            c.result.startsWith("found") && "bg-success/10 text-success",
+                            c.result === "not_found" && "text-muted-foreground",
+                            c.result === "skipped" && "text-muted-foreground/50",
+                            c.result.startsWith("error") && "bg-destructive/10 text-destructive",
+                          )}
+                        >
+                          <span>{c.source}</span>
+                          <span className="font-mono">{c.result}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Info section */}
                 <AppInfoSection detail={detail} />

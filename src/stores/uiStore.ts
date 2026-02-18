@@ -14,6 +14,7 @@ export const useUIStore = create<UIState>((set) => ({
   detailOpen: false,
   commandPaletteOpen: false,
   selectApp: (bundleId) => set({ selectedAppId: bundleId, detailOpen: !!bundleId }),
-  setDetailOpen: (detailOpen) => set({ detailOpen, selectedAppId: detailOpen ? undefined : null }),
+  setDetailOpen: (detailOpen) =>
+    set(detailOpen ? { detailOpen } : { detailOpen, selectedAppId: null }),
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
 }));

@@ -7,7 +7,8 @@ use crate::db::Database;
 use crate::executor::{
     delegated_executor::DelegatedExecutor, homebrew_executor::HomebrewExecutor,
     homebrew_formula_executor::HomebrewFormulaExecutor,
-    mas_executor::MasExecutor, sparkle_executor::SparkleExecutor, UpdateExecutor,
+    mas_executor::MasExecutor, microsoft_autoupdate_executor::MicrosoftAutoUpdateExecutor,
+    sparkle_executor::SparkleExecutor, UpdateExecutor,
 };
 use crate::models::{AppDetail, AppSource, UpdateExecuteComplete, UpdateExecuteProgress, UpdateResult};
 use crate::utils::{app_lifecycle, sudo_session, AppError};
@@ -86,6 +87,7 @@ async fn route_and_execute(
             }
             "mas" => {
                 return MasExecutor::new(detail.mas_app_id.clone())
+                    .with_pre_version(detail.installed_version.clone())
                     .execute(bundle_id, &detail.app_path, on_progress)
                     .await;
             }
@@ -120,6 +122,13 @@ async fn route_and_execute(
                 }
                 // Fallback to delegated (opens release page)
             }
+            "microsoft_autoupdate" => {
+                return MicrosoftAutoUpdateExecutor::new(detail.display_name.clone())
+                    .with_cask_token(detail.homebrew_cask_token.clone())
+                    .with_pre_version(detail.installed_version.clone())
+                    .execute(bundle_id, &detail.app_path, on_progress)
+                    .await;
+            }
             _ => {}
         }
     }
@@ -153,6 +162,7 @@ async fn route_and_execute(
         }
         AppSource::MacAppStore => {
             MasExecutor::new(detail.mas_app_id.clone())
+                .with_pre_version(detail.installed_version.clone())
                 .execute(bundle_id, &detail.app_path, on_progress)
                 .await
         }
@@ -484,8 +494,9 @@ fn may_need_elevation(detail: &AppDetail) -> bool {
     // Check the update source_type first
     if let Some(ref update) = detail.available_update {
         match update.source_type.as_str() {
-            "homebrew_cask" | "sparkle" | "github" | "homebrew_api" => return true,
-            "mas" | "adobe_cc" => return false,
+            "homebrew_cask" | "sparkle" | "github" | "homebrew_api" | "microsoft_autoupdate" => return true,
+            "mas" => return true,
+            "adobe_cc" => return false,
             _ => {}
         }
     }

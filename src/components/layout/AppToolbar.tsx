@@ -6,7 +6,6 @@ import {
   EyeOff,
   LayoutGrid,
   Minus,
-  RefreshCw,
   Search,
   Settings,
   X,
@@ -30,17 +29,10 @@ const NAV_ITEMS: NavItem[] = [
 
 interface AppToolbarProps {
   updateCount?: number;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
   className?: string;
 }
 
-export default function AppToolbar({
-  updateCount = 0,
-  onRefresh,
-  isRefreshing = false,
-  className,
-}: AppToolbarProps) {
+export default function AppToolbar({ updateCount = 0, className }: AppToolbarProps) {
   const { search, setSearch, filterView, setFilterView } = useAppFilterStore();
 
   const activeNavView = NAV_ITEMS.find((n) => n.view === filterView);
@@ -117,23 +109,6 @@ export default function AppToolbar({
           aria-label="Search"
         >
           <Search className="h-3.5 w-3.5" />
-        </motion.button>
-
-        {/* Refresh */}
-        <motion.button
-          whileTap={isRefreshing ? undefined : { scale: 0.9 }}
-          transition={springs.micro}
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
-            isRefreshing
-              ? "text-muted-foreground/50 cursor-not-allowed"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-          aria-label="Refresh"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
         </motion.button>
 
         {/* Divider */}

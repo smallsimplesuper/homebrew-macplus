@@ -9,8 +9,6 @@ interface DesktopShellProps {
   appCount?: number;
   updateCount?: number;
   ignoredCount?: number;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
 }
 
 export default function DesktopShell({
@@ -18,8 +16,6 @@ export default function DesktopShell({
   appCount = 0,
   updateCount = 0,
   ignoredCount = 0,
-  onRefresh,
-  isRefreshing = false,
 }: DesktopShellProps) {
   const focused = useWindowFocus();
 
@@ -30,7 +26,7 @@ export default function DesktopShell({
         !focused && "opacity-[0.92]",
       )}
     >
-      <AppToolbar updateCount={updateCount} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+      <AppToolbar updateCount={updateCount} />
 
       {/* Glass frame content area */}
       <div className="mx-2 mb-2 flex flex-1 flex-col overflow-hidden glass-frame">

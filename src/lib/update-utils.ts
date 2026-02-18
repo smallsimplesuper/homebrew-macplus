@@ -16,6 +16,10 @@ export function isDelegatedUpdate(app: AppSummary): boolean {
         // MAS executor handles it directly
         return false;
 
+      case "microsoft_autoupdate":
+        // Backend tries direct update first (Homebrew → msupdate → MAU)
+        return false;
+
       case "sparkle":
         // Sparkle usually has a download URL — assume direct
         return false;

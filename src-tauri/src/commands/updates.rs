@@ -80,6 +80,68 @@ pub async fn check_single_update(
 }
 
 #[tauri::command]
+pub async fn debug_update_check(
+    bundle_id: String,
+    db: State<'_, Arc<Mutex<Database>>>,
+    http_client: State<'_, reqwest::Client>,
+) -> Result<crate::updaters::UpdateCheckDiagnostic, AppError> {
+    let db_guard = db.lock().await;
+    let apps = db_guard.get_all_apps()?;
+    drop(db_guard);
+
+    let app = apps
+        .into_iter()
+        .find(|a| a.bundle_id == bundle_id)
+        .ok_or_else(|| AppError::NotFound(format!("App not found: {}", bundle_id)))?;
+
+    let install_source = crate::models::AppSource::from_str(&app.install_source);
+    let dispatcher = crate::updaters::UpdateDispatcher::new();
+
+    let cask_index = crate::updaters::homebrew_api::fetch_cask_index(http_client.inner())
+        .await
+        .map(std::sync::Arc::new);
+
+    let github_repo = {
+        let db_guard = db.lock().await;
+        let mappings = db_guard.get_github_mappings();
+        mappings.get(&bundle_id).cloned()
+    };
+
+    let context = crate::updaters::AppCheckContext {
+        homebrew_cask_token: app.homebrew_cask_token.clone(),
+        sparkle_feed_url: app.sparkle_feed_url.clone(),
+        obtained_from: app.obtained_from.clone(),
+        brew_outdated: None,
+        brew_outdated_formulae: None,
+        homebrew_cask_index: cask_index,
+        github_repo,
+        homebrew_formula_name: app.homebrew_formula_name.clone(),
+        xcode_clt_installed: None,
+        db: Some(db.inner().clone()),
+    };
+
+    let checkers_tried = dispatcher
+        .debug_check(
+            &app.bundle_id,
+            &app.app_path,
+            app.installed_version.as_deref(),
+            &install_source,
+            http_client.inner(),
+            &context,
+        )
+        .await;
+
+    Ok(crate::updaters::UpdateCheckDiagnostic {
+        bundle_id: app.bundle_id.clone(),
+        app_path: app.app_path.clone(),
+        installed_version: app.installed_version.clone(),
+        install_source: app.install_source.clone(),
+        homebrew_cask_token: app.homebrew_cask_token.clone(),
+        checkers_tried,
+    })
+}
+
+#[tauri::command]
 pub async fn get_update_count(
     db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<usize, AppError> {

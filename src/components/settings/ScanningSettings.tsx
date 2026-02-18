@@ -1,9 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ChevronRight, FolderOpen, RefreshCw, X } from "lucide-react";
+import { AlertCircle, ChevronRight, FolderOpen, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { CustomSelect } from "@/components/shared/CustomSelect";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
-import { checkAllUpdates, triggerFullScan } from "@/lib/tauri-commands";
+import { checkAllUpdates, checkPathsExist, triggerFullScan } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 import { useAppFilterStore } from "@/stores/appFilterStore";
 import type { AppSettings } from "@/types/settings";
@@ -25,6 +26,13 @@ export function ScanningSettings() {
   const updateSettings = useUpdateSettings();
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+
+  const { data: pathStatus } = useQuery({
+    queryKey: ["path-status", settings?.scanLocations],
+    queryFn: () => checkPathsExist(settings?.scanLocations ?? []),
+    enabled: !!settings?.scanLocations?.length,
+    staleTime: 30 * 1000,
+  });
 
   if (isLoading || !settings) {
     return (
@@ -92,17 +100,38 @@ export function ScanningSettings() {
         <div className="space-y-1.5">
           {settings.scanLocations.map((location) => {
             const isDefault = DEFAULT_LOCATIONS.includes(location);
+            const exists = pathStatus?.[location] ?? true;
+            const isVolume = location.startsWith("/Volumes/");
             return (
               <div
                 key={location}
-                className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2"
+                className={cn(
+                  "flex items-center justify-between rounded-md px-3 py-2",
+                  exists ? "bg-muted/50" : "bg-destructive/5",
+                )}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-xs text-foreground">{location}</span>
+                  {exists ? (
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  )}
+                  <span
+                    className={cn(
+                      "truncate text-xs",
+                      exists ? "text-foreground" : "text-destructive",
+                    )}
+                  >
+                    {location}
+                  </span>
                   {isDefault && (
                     <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-caption font-medium text-muted-foreground">
                       default
+                    </span>
+                  )}
+                  {!exists && (
+                    <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-caption font-medium text-destructive">
+                      {isVolume ? "Not mounted" : "Not found"}
                     </span>
                   )}
                 </div>

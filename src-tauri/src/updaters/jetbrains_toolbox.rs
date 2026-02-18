@@ -92,13 +92,20 @@ impl UpdateChecker for JetBrainsToolboxChecker {
             .and_then(|rel| rel.get("version"))
             .and_then(|v| v.as_str());
 
-        let download_url = json
+        let release_obj = json
             .get(product_code)
             .and_then(|arr| arr.as_array())
-            .and_then(|arr| arr.first())
+            .and_then(|arr| arr.first());
+
+        let download_url = release_obj
             .and_then(|rel| rel.get("downloads"))
             .and_then(|dl| dl.get("mac"))
             .and_then(|mac| mac.get("link"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let notes_link = release_obj
+            .and_then(|rel| rel.get("notesLink"))
             .and_then(|v| v.as_str())
             .map(String::from);
 
@@ -114,7 +121,7 @@ impl UpdateChecker for JetBrainsToolboxChecker {
                     available_version: latest.to_string(),
                     source_type: UpdateSourceType::JetbrainsToolbox,
                     download_url,
-                    release_notes_url: None,
+                    release_notes_url: notes_link,
                     release_notes: None,
                     is_paid_upgrade: false,
                     notes: None,

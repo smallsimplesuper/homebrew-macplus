@@ -20,14 +20,20 @@ impl Database {
         migrations::run_migrations(&mut db)?;
 
         // Purge stale update records where available == installed version
-        let purged: usize = db.conn.execute(
+        let purged: usize = match db.conn.execute(
             "DELETE FROM available_updates WHERE id IN (
                 SELECT au.id FROM available_updates au
                 JOIN apps a ON a.id = au.app_id
                 WHERE au.available_version = a.installed_version
             )",
             [],
-        ).unwrap_or(0);
+        ) {
+            Ok(count) => count,
+            Err(e) => {
+                log::warn!("Failed to purge stale updates at startup: {}", e);
+                0
+            }
+        };
         if purged > 0 {
             log::info!("Purged {} stale update records (available == installed)", purged);
         }

@@ -7,7 +7,6 @@ use super::cask_sha_checker::{self, CaskShaResult};
 use super::version_compare;
 use super::UpdateChecker;
 use crate::models::{AppSource, UpdateInfo, UpdateSourceType};
-use crate::utils::http_client::APP_USER_AGENT;
 use crate::utils::AppResult;
 
 /// Maps bundle IDs to the XML element names used in macadmins.software/latest.xml
@@ -30,7 +29,7 @@ fn microsoft_apps() -> &'static HashMap<&'static str, &'static str> {
 }
 
 /// Hardcoded bundle_id → cask_token mapping for common Microsoft apps.
-const MICROSOFT_CASK_TOKENS: &[(&str, &str)] = &[
+pub const MICROSOFT_CASK_TOKENS: &[(&str, &str)] = &[
     ("com.microsoft.Word", "microsoft-word"),
     ("com.microsoft.Excel", "microsoft-excel"),
     ("com.microsoft.Powerpoint", "microsoft-powerpoint"),
@@ -56,8 +55,8 @@ impl UpdateChecker for MicrosoftAutoUpdateChecker {
         UpdateSourceType::MicrosoftAutoupdate
     }
 
-    fn can_check(&self, bundle_id: &str, _app_path: &Path, _install_source: &AppSource) -> bool {
-        microsoft_apps().contains_key(bundle_id)
+    fn can_check(&self, bundle_id: &str, _app_path: &Path, install_source: &AppSource) -> bool {
+        *install_source != AppSource::MacAppStore && microsoft_apps().contains_key(bundle_id)
     }
 
     async fn check(
@@ -101,7 +100,8 @@ impl UpdateChecker for MicrosoftAutoUpdateChecker {
                         bundle_id, current, cask_info.version
                     );
                     let release_notes_url = context.github_repo.as_ref()
-                        .map(|slug| format!("https://github.com/{}/releases", slug));
+                        .map(|slug| format!("https://github.com/{}/releases", slug))
+                        .or_else(|| office_release_notes_url(bundle_id));
                     return Ok(Some(UpdateInfo {
                         bundle_id: bundle_id.to_string(),
                         current_version: Some(current.to_string()),
@@ -134,7 +134,7 @@ impl UpdateChecker for MicrosoftAutoUpdateChecker {
                         available_version: outdated.current_version.clone(),
                         source_type: UpdateSourceType::MicrosoftAutoupdate,
                         download_url: None,
-                        release_notes_url: None,
+                        release_notes_url: office_release_notes_url(bundle_id),
                         release_notes: None,
                         is_paid_upgrade: false,
                         notes: Some("Update available via Homebrew".to_string()),
@@ -157,7 +157,7 @@ impl UpdateChecker for MicrosoftAutoUpdateChecker {
                         available_version: format!("{} (newer build)", current),
                         source_type: UpdateSourceType::MicrosoftAutoupdate,
                         download_url: None,
-                        release_notes_url: None,
+                        release_notes_url: office_release_notes_url(bundle_id),
                         release_notes: None,
                         is_paid_upgrade: false,
                         notes: Some("Update detected via cask SHA change".to_string()),
@@ -175,8 +175,26 @@ impl UpdateChecker for MicrosoftAutoUpdateChecker {
     }
 }
 
+/// Return a release notes URL for a known Microsoft app.
+fn office_release_notes_url(bundle_id: &str) -> Option<String> {
+    match bundle_id {
+        "com.microsoft.Word" | "com.microsoft.Excel" | "com.microsoft.Powerpoint"
+        | "com.microsoft.Outlook" | "com.microsoft.onenote.mac" =>
+            Some("https://learn.microsoft.com/en-us/officeupdates/release-notes-office-for-mac".to_string()),
+        "com.microsoft.teams2" | "com.microsoft.teams" =>
+            Some("https://learn.microsoft.com/en-us/officeupdates/teams-app-versioning".to_string()),
+        "com.microsoft.edgemac" =>
+            Some("https://learn.microsoft.com/en-us/deployedge/microsoft-edge-relnote-stable-channel".to_string()),
+        "com.microsoft.VSCode" =>
+            Some("https://code.visualstudio.com/updates".to_string()),
+        "com.microsoft.OneDrive" =>
+            Some("https://support.microsoft.com/en-us/office/onedrive-release-notes-845dcf18-f921-435e-bf28-4e24b95e5fc0".to_string()),
+        _ => None,
+    }
+}
+
 /// Look up a hardcoded cask token for a Microsoft bundle ID.
-fn lookup_hardcoded_token(bundle_id: &str) -> Option<&'static str> {
+pub fn lookup_hardcoded_token(bundle_id: &str) -> Option<&'static str> {
     MICROSOFT_CASK_TOKENS
         .iter()
         .find(|(bid, _)| *bid == bundle_id)
@@ -189,25 +207,7 @@ async fn check_macadmins_xml(
     current: &str,
     client: &reqwest::Client,
 ) -> AppResult<Option<UpdateInfo>> {
-    let resp = client
-        .get("https://macadmins.software/latest.xml")
-        .header("User-Agent", APP_USER_AGENT)
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
-        log::info!(
-            "Microsoft AutoUpdate: macadmins.software XML fetch returned status {} for {}",
-            resp.status(),
-            bundle_id
-        );
-        return Ok(None);
-    }
-
-    let xml_text = resp.text().await?;
-
-    // Parse XML to find the version for the matching app
-    let latest_version = extract_version_from_xml(&xml_text, app_key, bundle_id);
+    let latest_version = super::macadmins_feed::check_macadmins_version(app_key, bundle_id, client).await;
 
     if let Some(version) = latest_version {
         log::info!(
@@ -225,7 +225,7 @@ async fn check_macadmins_xml(
                 available_version: version,
                 source_type: UpdateSourceType::MicrosoftAutoupdate,
                 download_url: None,
-                release_notes_url: None,
+                release_notes_url: office_release_notes_url(bundle_id),
                 release_notes: None,
                 is_paid_upgrade: false,
                 notes: None,
@@ -239,77 +239,4 @@ async fn check_macadmins_xml(
     }
 
     Ok(None)
-}
-
-/// Extract the latest version for a given app key from the macadmins.software XML.
-/// The XML contains elements like <package> with <title> and <version> children.
-/// Also tries matching by <cfbundleidentifier> as fallback.
-fn extract_version_from_xml(xml: &str, app_key: &str, bundle_id: &str) -> Option<String> {
-    use quick_xml::events::Event;
-    use quick_xml::reader::Reader;
-
-    let mut reader = Reader::from_str(xml);
-    let mut buf = Vec::new();
-
-    let app_key_lower = app_key.to_lowercase();
-    let bundle_id_lower = bundle_id.to_lowercase();
-    let mut in_package = false;
-    let mut current_title = String::new();
-    let mut current_version = String::new();
-    let mut current_cfbundle = String::new();
-    let mut reading_title = false;
-    let mut reading_version = false;
-    let mut reading_cfbundle = false;
-
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                match tag.as_str() {
-                    "package" => {
-                        in_package = true;
-                        current_title.clear();
-                        current_version.clear();
-                        current_cfbundle.clear();
-                    }
-                    "title" if in_package => reading_title = true,
-                    "version" if in_package => reading_version = true,
-                    "cfbundleidentifier" if in_package => reading_cfbundle = true,
-                    _ => {}
-                }
-            }
-            Ok(Event::Text(e)) => {
-                if reading_title {
-                    current_title = e.decode().unwrap_or_default().trim().to_string();
-                    reading_title = false;
-                } else if reading_version {
-                    current_version = e.decode().unwrap_or_default().trim().to_string();
-                    reading_version = false;
-                } else if reading_cfbundle {
-                    current_cfbundle = e.decode().unwrap_or_default().trim().to_string();
-                    reading_cfbundle = false;
-                }
-            }
-            Ok(Event::End(e)) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                if tag == "package" && in_package {
-                    // Match by title (primary) or by cfbundleidentifier (fallback)
-                    let title_match = current_title.to_lowercase().contains(&app_key_lower);
-                    let bundle_match = !current_cfbundle.is_empty()
-                        && current_cfbundle.to_lowercase() == bundle_id_lower;
-
-                    if (title_match || bundle_match) && !current_version.is_empty() {
-                        return Some(current_version.clone());
-                    }
-                    in_package = false;
-                }
-            }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
-            _ => {}
-        }
-        buf.clear();
-    }
-
-    None
 }

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   ExternalLink,
+  EyeOff,
   FileText,
   FolderSearch,
   Loader2,
@@ -15,7 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUpdateProgress";
-import { useApps, useFullScan } from "@/hooks/useApps";
+import { useApps, useFullScan, useToggleIgnored } from "@/hooks/useApps";
 import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
 import { useExecuteBulkUpdate, useExecuteUpdate } from "@/hooks/useUpdateExecution";
 import { formatDownloadProgress } from "@/lib/format-bytes";
@@ -64,6 +65,7 @@ const CATEGORY_LABELS: Record<UpdateCategory, string> = {
 function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: string) => void }) {
   const progress = useUpdateProgressStore((s) => s.progress[app.bundleId]);
   const relaunch = useUpdateProgressStore((s) => s.relaunchNeeded[app.bundleId]);
+  const toggleIgnored = useToggleIgnored();
   const [changelogOpen, setChangelogOpen] = useState(false);
 
   const hasChangelog = app.releaseNotes != null || app.releaseNotesUrl != null;
@@ -85,7 +87,7 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
   }, [progress]);
 
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="group rounded-lg border border-border bg-card">
       <AnimatePresence mode="wait" initial={false}>
         {progress ? (
           <motion.div
@@ -189,6 +191,20 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
                   <FileText className="h-3.5 w-3.5" />
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => toggleIgnored.mutate({ bundleId: app.bundleId, ignored: true })}
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-md",
+                  "h-7 w-7 text-muted-foreground",
+                  "opacity-0 transition-all group-hover:opacity-100",
+                  "hover:bg-muted hover:text-foreground",
+                )}
+                title="Ignore this app"
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+              </button>
 
               {relaunch ? (
                 <RelaunchButton

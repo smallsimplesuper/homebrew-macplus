@@ -1,9 +1,19 @@
-import { AlertTriangle, ArrowRight, Check, Download, ExternalLink } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Download,
+  ExternalLink,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { memo } from "react";
 import { InlineUpdateProgress, RelaunchButton } from "@/components/shared/InlineUpdateProgress";
+import { useToggleIgnored } from "@/hooks/useApps";
 import { useExecuteUpdate } from "@/hooks/useUpdateExecution";
 import { isDelegatedUpdate } from "@/lib/update-utils";
 import { cn } from "@/lib/utils";
+import { useAppFilterStore } from "@/stores/appFilterStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useUpdateProgressStore } from "@/stores/updateProgressStore";
 import type { AppSummary } from "@/types/app";
@@ -19,6 +29,8 @@ export const AppRow = memo(
   function AppRow({ app, isSelected }: AppRowProps) {
     const selectApp = useUIStore((s) => s.selectApp);
     const executeUpdate = useExecuteUpdate();
+    const toggleIgnored = useToggleIgnored();
+    const filterView = useAppFilterStore((s) => s.filterView);
     const progress = useUpdateProgressStore((s) => s.progress[app.bundleId]);
     const relaunch = useUpdateProgressStore((s) => s.relaunchNeeded[app.bundleId]);
 
@@ -35,7 +47,7 @@ export const AppRow = memo(
       <div
         onClick={handleRowClick}
         className={cn(
-          "grid min-h-[44px] cursor-pointer items-center rounded-lg border border-border bg-card px-3 transition-colors duration-150",
+          "group grid min-h-[44px] cursor-pointer items-center rounded-lg border border-border bg-card px-3 transition-colors duration-150",
           "grid-cols-[28px_1fr_auto]",
           "gap-2.5",
           isSelected ? "bg-accent/60" : "hover:bg-accent/30",
@@ -73,7 +85,35 @@ export const AppRow = memo(
         </div>
 
         {/* Action button */}
-        <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {filterView === "ignored" ? (
+            <button
+              type="button"
+              onClick={() => toggleIgnored.mutate({ bundleId: app.bundleId, ignored: false })}
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md",
+                "h-7 w-7 text-muted-foreground",
+                "transition-colors hover:bg-muted hover:text-foreground",
+              )}
+              title="Unignore this app"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggleIgnored.mutate({ bundleId: app.bundleId, ignored: true })}
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md",
+                "h-7 w-7 text-muted-foreground",
+                "opacity-0 transition-all group-hover:opacity-100",
+                "hover:bg-muted hover:text-foreground",
+              )}
+              title="Ignore this app"
+            >
+              <EyeOff className="h-3.5 w-3.5" />
+            </button>
+          )}
           {relaunch ? (
             <RelaunchButton
               bundleId={relaunch.bundleId}

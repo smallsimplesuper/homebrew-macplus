@@ -1,12 +1,16 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::path::Path;
+use std::time::Duration;
 
 use super::version_compare;
 use super::UpdateChecker;
 use crate::detection::bundle_reader;
 use crate::models::{AppSource, UpdateInfo, UpdateSourceType};
 use crate::utils::AppResult;
+
+/// Per-request timeout for iTunes API calls.
+const ITUNES_TIMEOUT_SECS: u64 = 15;
 
 pub struct MacAppStoreChecker;
 
@@ -41,7 +45,7 @@ impl UpdateChecker for MacAppStoreChecker {
     async fn check(
         &self,
         bundle_id: &str,
-        _app_path: &Path,
+        app_path: &Path,
         current_version: Option<&str>,
         client: &reqwest::Client,
         _context: &super::AppCheckContext,
@@ -50,8 +54,29 @@ impl UpdateChecker for MacAppStoreChecker {
             "https://itunes.apple.com/lookup?bundleId={}&country=US",
             bundle_id
         );
-        let resp = client.get(&url).send().await?;
-        let data: ItunesResponse = resp.json().await?;
+
+        let resp = match tokio::time::timeout(
+            Duration::from_secs(ITUNES_TIMEOUT_SECS),
+            client.get(&url).send(),
+        ).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                log::info!("MAS checker: HTTP error for {}: {}", bundle_id, e);
+                return Ok(None);
+            }
+            Err(_) => {
+                log::info!("MAS checker: request timed out after {}s for {}", ITUNES_TIMEOUT_SECS, bundle_id);
+                return Ok(None);
+            }
+        };
+
+        let data: ItunesResponse = match resp.json().await {
+            Ok(d) => d,
+            Err(e) => {
+                log::info!("MAS checker: failed to parse response for {}: {}", bundle_id, e);
+                return Ok(None);
+            }
+        };
 
         if data.result_count == 0 || data.results.is_empty() {
             return Ok(None);
@@ -59,7 +84,14 @@ impl UpdateChecker for MacAppStoreChecker {
 
         let result = &data.results[0];
 
-        if let Some(current) = current_version {
+        // Re-read the on-disk version to catch silent App Store updates
+        let disk_version = bundle_reader::read_bundle(app_path)
+            .and_then(|b| b.installed_version);
+
+        // Prefer the fresh disk version over the database version
+        let effective_version = disk_version.as_deref().or(current_version);
+
+        if let Some(current) = effective_version {
             if version_compare::is_newer(current, &result.version) {
                 return Ok(Some(UpdateInfo {
                     bundle_id: bundle_id.to_string(),

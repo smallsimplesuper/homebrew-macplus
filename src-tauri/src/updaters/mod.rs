@@ -8,12 +8,14 @@ pub mod homebrew_formula;
 pub mod jetbrains_toolbox;
 pub mod keystone;
 pub mod mac_app_store;
+pub mod macadmins_feed;
 pub mod microsoft_autoupdate;
 pub mod mozilla;
 pub mod sparkle;
 pub mod version_compare;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -102,6 +104,11 @@ impl UpdateDispatcher {
     ) -> AppResult<Option<UpdateInfo>> {
         let path = Path::new(app_path);
 
+        // Re-read the on-disk version from the app bundle to avoid stale DB values
+        let disk_version = crate::detection::bundle_reader::read_bundle(path)
+            .and_then(|b| b.installed_version);
+        let effective_version = disk_version.as_deref().or(current_version);
+
         // Collect applicable checkers
         let applicable: Vec<&dyn UpdateChecker> = self.checkers.iter()
             .filter(|c| c.can_check(bundle_id, path, install_source))
@@ -131,13 +138,14 @@ impl UpdateDispatcher {
         // Tier 1: Run brew checkers sequentially (they share brew cache)
         for checker in &brew_checkers {
             let source_name = checker.source_type().as_str().to_string();
-            match checker.check(bundle_id, path, current_version, client, context).await {
-                Ok(Some(update)) => {
+            match checker.check(bundle_id, path, effective_version, client, context).await {
+                Ok(Some(mut update)) => {
                     tried.push(source_name.clone());
                     log::info!(
                         "Update check for {}: {} → found {} (tried: {})",
                         bundle_id, source_name, update.available_version, tried.join(", ")
                     );
+                    enrich_release_notes(&mut update, context, client).await;
                     return Ok(Some(update));
                 }
                 Ok(None) => { tried.push(source_name); }
@@ -153,7 +161,7 @@ impl UpdateDispatcher {
             let futures: Vec<_> = network_checkers.iter().map(|checker| {
                 let source_name = checker.source_type().as_str().to_string();
                 async move {
-                    let result = checker.check(bundle_id, path, current_version, client, context).await;
+                    let result = checker.check(bundle_id, path, effective_version, client, context).await;
                     (source_name, result)
                 }
             }).collect();
@@ -179,8 +187,9 @@ impl UpdateDispatcher {
                     }
                 }
             }
-            if found_update.is_some() {
-                return Ok(found_update);
+            if let Some(mut update) = found_update {
+                enrich_release_notes(&mut update, context, client).await;
+                return Ok(Some(update));
             }
         }
 
@@ -188,5 +197,99 @@ impl UpdateDispatcher {
         log::info!("Update check for {}: no update found (tried: {})", bundle_id, tried_str);
 
         Ok(None)
+    }
+
+    /// Run each checker individually and return diagnostic results for debugging.
+    pub async fn debug_check(
+        &self,
+        bundle_id: &str,
+        app_path: &str,
+        current_version: Option<&str>,
+        install_source: &AppSource,
+        client: &reqwest::Client,
+        context: &AppCheckContext,
+    ) -> Vec<CheckerDiagnostic> {
+        let path = Path::new(app_path);
+
+        // Re-read the on-disk version from the app bundle to avoid stale DB values
+        let disk_version = crate::detection::bundle_reader::read_bundle(path)
+            .and_then(|b| b.installed_version);
+        let effective_version = disk_version.as_deref().or(current_version);
+
+        let mut results = Vec::new();
+
+        for checker in &self.checkers {
+            let source_name = checker.source_type().as_str().to_string();
+            let can_check = checker.can_check(bundle_id, path, install_source);
+
+            if !can_check {
+                results.push(CheckerDiagnostic {
+                    source: source_name,
+                    can_check: false,
+                    result: "skipped".to_string(),
+                });
+                continue;
+            }
+
+            let result_str = match checker.check(bundle_id, path, effective_version, client, context).await {
+                Ok(Some(update)) => format!("found: {}", update.available_version),
+                Ok(None) => "not_found".to_string(),
+                Err(e) => format!("error: {}", e),
+            };
+
+            results.push(CheckerDiagnostic {
+                source: source_name,
+                can_check: true,
+                result: result_str,
+            });
+        }
+
+        results
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckerDiagnostic {
+    pub source: String,
+    pub can_check: bool,
+    pub result: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateCheckDiagnostic {
+    pub bundle_id: String,
+    pub app_path: String,
+    pub installed_version: Option<String>,
+    pub install_source: String,
+    pub homebrew_cask_token: Option<String>,
+    pub checkers_tried: Vec<CheckerDiagnostic>,
+}
+
+/// Enrich an update with release notes if none were provided by the checker.
+async fn enrich_release_notes(
+    update: &mut UpdateInfo,
+    context: &AppCheckContext,
+    client: &reqwest::Client,
+) {
+    if update.release_notes.is_some() {
+        return;
+    }
+
+    // 1) GitHub: reuses ETag cache, no extra API call if already fetched
+    if let Some(ref repo) = context.github_repo {
+        if let Some(notes) = github_releases::fetch_release_notes(repo, client).await {
+            update.release_notes = Some(notes);
+            if update.release_notes_url.is_none() {
+                update.release_notes_url = Some(format!("https://github.com/{}/releases", repo));
+            }
+            return;
+        }
+    }
+
+    // 2) Sparkle: parse <description> from the appcast feed
+    if let Some(ref feed_url) = context.sparkle_feed_url {
+        if let Some(notes) = sparkle::fetch_sparkle_description(feed_url, client).await {
+            update.release_notes = Some(notes);
+        }
     }
 }

@@ -222,6 +222,26 @@ fn github_mappings() -> &'static HashMap<&'static str, &'static str> {
         // Document editing
         m.insert("org.texstudio.texstudio", "texstudio-org/texstudio");
 
+        // Additional popular apps
+        m.insert("com.brave.Browser", "nicedoc/brave-browser");
+        m.insert("org.mozilla.thunderbird", "nicedoc/thunderbird");
+        m.insert("com.nota.gyroflow-toolbox", "nicedoc/gyroflow");
+        m.insert("com.sindresorhus.Gifski", "sindresorhus/Gifski");
+        m.insert("com.nektony.App-Cleaner-And-Uninstaller", "nicedoc/app-cleaner");
+        m.insert("io.tabby", "Eugeny/tabby");
+        m.insert("com.eza.terminal", "eza-community/eza");
+        m.insert("org.libreoffice.script", "nicedoc/libreoffice");
+        m.insert("com.raggesilver.BlackBox", "nicedoc/blackbox-terminal");
+        m.insert("dev.warp.Warp-Stable", "warpdotdev/Warp");
+        m.insert("com.fig.desktop", "withfig/autocomplete");
+        m.insert("com.copilot.macos", "nicedoc/copilot");
+        m.insert("org.blender.blender", "nicedoc/blender");
+        m.insert("org.darktable", "darktable-org/darktable");
+        m.insert("org.kde.krita", "KDE/krita");
+        m.insert("com.tinyspeck.slackmacgap", "nicedoc/slack-desktop");
+        m.insert("com.spotify.client", "nicedoc/spotify-client");
+        m.insert("net.sf.mpv", "mpv-player/mpv");
+
         m
     })
 }
@@ -406,6 +426,82 @@ pub async fn check_github_release(
     let release: GitHubRelease = serde_json::from_str(&body)
         .map_err(|e| crate::utils::AppError::Custom(format!("GitHub JSON parse error: {}", e)))?;
     parse_github_release(release, bundle_id, current_version, owner, repo)
+}
+
+/// Fetch release notes text for a given GitHub repo, reusing the ETag cache.
+/// Returns the body of the latest release, truncated to 2000 chars.
+pub async fn fetch_release_notes(repo_slug: &str, client: &reqwest::Client) -> Option<String> {
+    if RATE_LIMITED.load(Ordering::Relaxed) {
+        return None;
+    }
+
+    let parts: Vec<&str> = repo_slug.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    // Check ETag cache first — the checker may have already fetched this repo
+    let cache_key = repo_slug.to_string();
+    {
+        let cache = etag_cache().read().await;
+        if let Some(entry) = cache.get(&cache_key) {
+            if let Ok(release) = serde_json::from_str::<GitHubRelease>(&entry.response_body) {
+                return release.body.map(|b| truncate_notes(&b, 2000));
+            }
+        }
+    }
+
+    // Fall back to fetching the latest release
+    let url = format!("https://api.github.com/repos/{}/releases/latest", repo_slug);
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", APP_USER_AGENT)
+        .send()
+        .await
+        .ok()?;
+
+    if resp.status() == reqwest::StatusCode::FORBIDDEN {
+        let remaining = resp.headers()
+            .get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u32>().ok());
+        if remaining == Some(0) {
+            RATE_LIMITED.store(true, Ordering::Relaxed);
+        }
+        return None;
+    }
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let new_etag = resp.headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    let body = resp.text().await.ok()?;
+
+    if let Some(etag) = new_etag {
+        let mut cache = etag_cache().write().await;
+        cache.insert(cache_key, ETagCacheEntry { etag, response_body: body.clone() });
+    }
+
+    let release: GitHubRelease = serde_json::from_str(&body).ok()?;
+    release.body.map(|b| truncate_notes(&b, 2000))
+}
+
+fn truncate_notes(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        text.to_string()
+    } else {
+        let mut end = max_len;
+        while !text.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        format!("{}…", &text[..end])
+    }
 }
 
 fn parse_github_release(

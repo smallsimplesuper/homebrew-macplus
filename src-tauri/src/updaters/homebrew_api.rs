@@ -339,7 +339,8 @@ pub async fn fetch_cask_index(client: &reqwest::Client) -> Option<HomebrewCaskIn
 pub struct HomebrewApiChecker;
 
 impl HomebrewCaskIndex {
-    /// Look up an app in the index by bundle_id (primary) or app path filename (fallback).
+    /// Look up an app in the index by bundle_id (primary), app path filename (fallback),
+    /// or display name normalized to cask token format (third strategy).
     /// Only returns casks with real version numbers (excludes "latest").
     pub fn lookup(&self, bundle_id: &str, app_path: &Path) -> Option<&CaskVersionInfo> {
         // Primary: match by bundle ID
@@ -372,10 +373,30 @@ impl HomebrewCaskIndex {
             if let Some(token) = self.all_tokens_by_app_name.get(&normalized) {
                 return Some(token.as_str());
             }
+
+            // Third strategy: normalize display name to cask token format
+            // e.g. "Firefox" → "firefox", "Visual Studio Code" → "visual-studio-code"
+            let token_style = display_name_to_token(&normalized);
+            if let Some(token) = self.all_tokens_by_app_name.get(&token_style) {
+                return Some(token.as_str());
+            }
         }
 
         None
     }
+}
+
+/// Convert a display name to a Homebrew cask token format.
+/// e.g. "Visual Studio Code" → "visual-studio-code", "Firefox" → "firefox"
+fn display_name_to_token(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 #[async_trait]

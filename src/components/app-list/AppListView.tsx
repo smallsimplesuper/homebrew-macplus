@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpDown, ChevronDown, PackageOpen, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useApps } from "@/hooks/useApps";
+import { useApps, useToggleIgnored } from "@/hooks/useApps";
 import { useExecuteBulkUpdate } from "@/hooks/useUpdateExecution";
 import { cn } from "@/lib/utils";
 import { type SortField, useAppFilterStore } from "@/stores/appFilterStore";
@@ -77,6 +77,7 @@ export function AppListView() {
   } = useAppFilterStore();
   const { selectedIds, toggle, clearSelection } = useSelectionStore();
   const executeBulk = useExecuteBulkUpdate();
+  const toggleIgnored = useToggleIgnored();
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +130,20 @@ export function AppListView() {
       executeBulk.mutate(updatable);
     }
   }, [processedApps, executeBulk]);
+
+  const handleIgnoreSelected = useCallback(() => {
+    for (const id of selectedIds) {
+      toggleIgnored.mutate({ bundleId: id, ignored: true });
+    }
+    clearSelection();
+  }, [selectedIds, toggleIgnored, clearSelection]);
+
+  const handleUnignoreSelected = useCallback(() => {
+    for (const id of selectedIds) {
+      toggleIgnored.mutate({ bundleId: id, ignored: false });
+    }
+    clearSelection();
+  }, [selectedIds, toggleIgnored, clearSelection]);
 
   const selectedCount = selectedIds.size;
 
@@ -254,8 +269,11 @@ export function AppListView() {
         <div className="flex justify-center pb-3 pt-1">
           <BulkActionBar
             selectedCount={selectedCount}
+            filterView={filterView}
             onUpdateSelected={handleUpdateSelected}
             onUpdateAll={handleUpdateAll}
+            onIgnoreSelected={handleIgnoreSelected}
+            onUnignoreSelected={handleUnignoreSelected}
             onClearSelection={clearSelection}
           />
         </div>

@@ -282,6 +282,80 @@ fn collect_release_notes_links(xml: &str) -> Vec<Option<String>> {
     links
 }
 
+/// Fetch the `<description>` or `<content:encoded>` from a Sparkle appcast feed.
+/// Returns the raw HTML content — the frontend sanitizes it.
+pub async fn fetch_sparkle_description(
+    feed_url: &str,
+    client: &reqwest::Client,
+) -> Option<String> {
+    let resp = client.get(feed_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body = resp.text().await.ok()?;
+    extract_item_description(&body)
+}
+
+/// Extract the description from the first `<item>` in a Sparkle appcast.
+fn extract_item_description(xml: &str) -> Option<String> {
+    let item_start = xml.find("<item")?;
+    let item_content = &xml[item_start..];
+    let item_end = item_content.find("</item>")?;
+    let item_block = &item_content[..item_end];
+
+    // Try <content:encoded> first (often has richer HTML)
+    if let Some(desc) = extract_cdata_element(item_block, "content:encoded") {
+        if !desc.trim().is_empty() {
+            return Some(truncate_description(&desc, 2000));
+        }
+    }
+
+    // Fall back to <description>
+    if let Some(desc) = extract_cdata_element(item_block, "description") {
+        if !desc.trim().is_empty() {
+            return Some(truncate_description(&desc, 2000));
+        }
+    }
+
+    None
+}
+
+/// Extract content from an XML element that may use CDATA.
+fn extract_cdata_element(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+
+    let start_pos = xml.find(&open).map(|i| i + open.len())
+        .or_else(|| {
+            let open_alt = format!("<{} ", tag);
+            xml.find(&open_alt).and_then(|i| {
+                xml[i..].find('>').map(|j| i + j + 1)
+            })
+        })?;
+
+    let end_pos = xml[start_pos..].find(&close)? + start_pos;
+    let mut content = xml[start_pos..end_pos].trim().to_string();
+
+    // Strip CDATA wrapper if present
+    if let Some(inner) = content.strip_prefix("<![CDATA[") {
+        content = inner.strip_suffix("]]>").unwrap_or(inner).to_string();
+    }
+
+    if content.is_empty() { None } else { Some(content) }
+}
+
+fn truncate_description(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        text.to_string()
+    } else {
+        let mut end = max_len;
+        while !text.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        format!("{}…", &text[..end])
+    }
+}
+
 fn extract_attr(text: &str, attr: &str) -> Option<String> {
     let pattern = format!("{}=\"", attr);
     let start = text.find(&pattern)?;

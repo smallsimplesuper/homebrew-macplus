@@ -100,6 +100,7 @@ pub fn run() {
             commands::apps::set_app_ignored,
             commands::updates::check_all_updates,
             commands::updates::check_single_update,
+            commands::updates::debug_update_check,
             commands::updates::get_update_count,
             commands::updates::get_update_history,
             commands::execute::execute_update,
@@ -107,6 +108,7 @@ pub fn run() {
             commands::execute::relaunch_app,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::settings::check_paths_exist,
             commands::system::open_app,
             commands::system::reveal_in_finder,
             commands::system::get_app_icon,
@@ -147,6 +149,14 @@ pub fn run() {
                 let icons_dir = cache_dir.join("icons");
                 let _ = std::fs::create_dir_all(&icons_dir);
                 let _ = app.asset_protocol_scope().allow_directory(&icons_dir, true);
+            }
+
+            // Validate settings — prune stale scan locations from migrated databases
+            {
+                let db_clone = db.clone();
+                tauri::async_runtime::spawn(async move {
+                    scheduler::validate_settings(&db_clone).await;
+                });
             }
 
             // Initialize HTTP client

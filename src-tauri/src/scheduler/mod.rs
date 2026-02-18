@@ -159,7 +159,64 @@ pub async fn run_full_scan(
         },
     );
 
+    // Backfill cask tokens for newly discovered apps
+    let client = app_handle.state::<reqwest::Client>();
+    if let Some(index) = homebrew_api::fetch_cask_index(client.inner()).await {
+        backfill_cask_tokens(db, &Arc::new(index)).await;
+    }
+
     Ok(count)
+}
+
+/// Validate settings on startup: remove non-existent scan locations
+/// (except /Volumes/ paths which may be temporarily unmounted).
+pub async fn validate_settings(db: &Arc<Mutex<Database>>) {
+    let db_guard = db.lock().await;
+    let settings = load_settings_from_db(&db_guard);
+    drop(db_guard);
+
+    let mut pruned = Vec::new();
+    let mut removed = Vec::new();
+    for loc in &settings.scan_locations {
+        let expanded = std::path::Path::new(loc);
+        if expanded.exists() {
+            pruned.push(loc.clone());
+        } else if loc.starts_with("/Volumes/") {
+            // Keep unmounted volume paths — drive might be temporarily disconnected
+            log::warn!("Settings: scan location '{}' not found (keeping — may be unmounted volume)", loc);
+            pruned.push(loc.clone());
+        } else {
+            log::warn!("Settings: removing stale scan location '{}' (path does not exist)", loc);
+            removed.push(loc.clone());
+        }
+    }
+
+    if !removed.is_empty() {
+        let mut updated = settings.clone();
+        // If all locations were pruned, reset to defaults
+        if pruned.is_empty() {
+            updated.scan_locations = vec!["/Applications".to_string(), "~/Applications".to_string()];
+            log::info!("Settings: all scan locations were stale — reset to defaults");
+        } else {
+            updated.scan_locations = pruned;
+        }
+
+        let json = match serde_json::to_string(&updated) {
+            Ok(j) => j,
+            Err(e) => {
+                log::warn!("Settings: failed to serialize pruned settings: {}", e);
+                return;
+            }
+        };
+
+        let db_guard = db.lock().await;
+        let _ = db_guard.conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('app_settings', ?1, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            [&json],
+        );
+        log::info!("Settings: removed {} stale scan locations", removed.len());
+    }
 }
 
 pub async fn run_update_check(
@@ -225,6 +282,11 @@ pub async fn run_update_check(
         .filter(|app| !app.is_ignored)
         .collect();
 
+    let updated_app_ids: Arc<Mutex<std::collections::HashSet<i64>>> =
+        Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let successfully_checked_ids: Arc<Mutex<std::collections::HashSet<i64>>> =
+        Arc::new(Mutex::new(std::collections::HashSet::new()));
+
     stream::iter(check_apps)
         .for_each_concurrent(10, |app| {
             let dispatcher = dispatcher.clone();
@@ -238,6 +300,8 @@ pub async fn run_update_check(
             let cask_index = cask_index.clone();
             let github_mappings = github_mappings.clone();
             let xcode_clt_installed = xcode_clt_installed;
+            let updated_app_ids = updated_app_ids.clone();
+            let successfully_checked_ids = successfully_checked_ids.clone();
 
             async move {
                 let count = checked.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -266,7 +330,7 @@ pub async fn run_update_check(
                     db: Some(db.clone()),
                 };
 
-                if let Ok(Some(update)) = dispatcher
+                match dispatcher
                     .check_update(
                         &app.bundle_id,
                         &app.app_path,
@@ -277,37 +341,59 @@ pub async fn run_update_check(
                     )
                     .await
                 {
-                    let dominated = app.installed_version.as_ref()
-                        .map(|iv| update.available_version == *iv)
-                        .unwrap_or(false);
+                    Ok(Some(update)) => {
+                        successfully_checked_ids.lock().await.insert(app.id);
 
-                    if dominated {
-                        log::info!(
-                            "Skipping no-op update for {}: available '{}' == installed",
-                            app.bundle_id, update.available_version,
-                        );
-                    } else {
-                        let _ = app_handle.emit(
-                            "update-found",
-                            UpdateFound {
-                                bundle_id: app.bundle_id.clone(),
-                                current_version: app.installed_version.clone(),
-                                available_version: update.available_version.clone(),
-                                source: update.source_type.as_str().to_string(),
-                            },
-                        );
+                        let dominated = {
+                            let db_match = app.installed_version.as_ref()
+                                .map(|iv| update.available_version == *iv)
+                                .unwrap_or(false);
+                            let fresh_match = update.current_version.as_ref()
+                                .map(|cv| update.available_version == *cv)
+                                .unwrap_or(false);
+                            db_match || fresh_match
+                        };
 
-                        let db = db.lock().await;
-                        let _ = db.upsert_available_update(app.id, &update);
-                        updates_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if dominated {
+                            log::info!(
+                                "Skipping no-op update for {}: available '{}' == installed",
+                                app.bundle_id, update.available_version,
+                            );
+                        } else {
+                            let _ = app_handle.emit(
+                                "update-found",
+                                UpdateFound {
+                                    bundle_id: app.bundle_id.clone(),
+                                    current_version: app.installed_version.clone(),
+                                    available_version: update.available_version.clone(),
+                                    source: update.source_type.as_str().to_string(),
+                                },
+                            );
+
+                            {
+                                let db = db.lock().await;
+                                let _ = db.upsert_available_update(app.id, &update);
+                            }
+                            updates_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            updated_app_ids.lock().await.insert(app.id);
+                        }
+                    }
+                    Ok(None) => {
+                        successfully_checked_ids.lock().await.insert(app.id);
+                    }
+                    Err(e) => {
+                        log::debug!("Checker error for {}: {}", app.bundle_id, e);
                     }
                 }
             }
         })
         .await;
 
-    // Persist GitHub ETag cache to disk
-    crate::updaters::github_releases::save_etag_cache().await;
+    // Persist GitHub ETag cache to disk (timeout so slow I/O doesn't block completion)
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        crate::updaters::github_releases::save_etag_cache(),
+    ).await;
 
     // Check for macPlus self-update and emit event if available
     if let Some(info) = crate::commands::self_update::check_self_update_inner(http_client).await {
@@ -316,6 +402,70 @@ pub async fn run_update_check(
 
     let found_this_cycle = updates_found.load(std::sync::atomic::Ordering::Relaxed);
     log::info!("Update check found {} new updates this cycle", found_this_cycle);
+
+    // --- Post-cycle stale update cleanup ---
+    {
+        let updated_ids = updated_app_ids.lock().await;
+        let db_guard = db.lock().await;
+
+        // Step 1: Refresh installed_version from disk for apps with pending updates.
+        // This ensures the version-match purge works even when the DB version is stale
+        // (e.g., user updated an app via MAS between scans).
+        if let Ok(mut stmt) = db_guard.conn.prepare(
+            "SELECT DISTINCT a.id, a.app_path FROM apps a
+             JOIN available_updates au ON au.app_id = a.id
+             WHERE au.dismissed_at IS NULL"
+        ) {
+            let candidates: Vec<(i64, String)> = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap_or_else(|_| unreachable!())
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for (app_id, app_path) in &candidates {
+                if let Some(bundle) = crate::detection::bundle_reader::read_bundle(
+                    std::path::Path::new(app_path),
+                ) {
+                    if let Some(ref ver) = bundle.installed_version {
+                        let _ = db_guard.update_installed_version(*app_id, ver);
+                    }
+                }
+            }
+        }
+
+        // Step 2: Purge updates where available_version now matches the (freshly updated)
+        // installed_version. This handles apps updated externally (MAS, direct download).
+        let purged = db_guard.conn.execute(
+            "DELETE FROM available_updates WHERE id IN (
+                SELECT au.id FROM available_updates au
+                JOIN apps a ON a.id = au.app_id
+                WHERE au.available_version = a.installed_version
+                  AND au.dismissed_at IS NULL
+            )",
+            [],
+        ).unwrap_or(0);
+
+        // Step 3: Clear remaining stale updates for apps that were successfully checked
+        // this cycle but received no update. Apps whose checkers errored are excluded
+        // so a network glitch doesn't silently clear a valid pending update.
+        let checked_ids = successfully_checked_ids.lock().await;
+        let mut cleared = 0usize;
+        for app_id in checked_ids.iter() {
+            if !updated_ids.contains(app_id) {
+                cleared += db_guard.conn.execute(
+                    "DELETE FROM available_updates WHERE app_id = ?1 AND dismissed_at IS NULL",
+                    [app_id],
+                ).unwrap_or(0);
+            }
+        }
+
+        if purged > 0 || cleared > 0 {
+            log::info!(
+                "Post-cycle cleanup: {} version-matched purged, {} stale cleared",
+                purged, cleared
+            );
+        }
+    }
 
     // Use the total DB count so the emitted value matches what the UI displays
     let db_count = {

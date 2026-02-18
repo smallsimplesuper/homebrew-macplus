@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -59,4 +60,22 @@ pub async fn update_settings(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn check_paths_exist(
+    paths: Vec<String>,
+) -> Result<HashMap<String, bool>, AppError> {
+    let mut result = HashMap::new();
+    for path in paths {
+        let expanded = if path.starts_with("~/") {
+            dirs::home_dir()
+                .map(|h| h.join(path.strip_prefix("~/").unwrap()))
+                .unwrap_or_else(|| std::path::PathBuf::from(&path))
+        } else {
+            std::path::PathBuf::from(&path)
+        };
+        result.insert(path, expanded.exists());
+    }
+    Ok(result)
 }

@@ -34,8 +34,9 @@ impl UpdateChecker for KeystoneChecker {
         UpdateSourceType::Keystone
     }
 
-    fn can_check(&self, bundle_id: &str, _app_path: &Path, _install_source: &AppSource) -> bool {
-        KEYSTONE_BUNDLE_IDS.iter().any(|&id| id == bundle_id)
+    fn can_check(&self, bundle_id: &str, _app_path: &Path, install_source: &AppSource) -> bool {
+        *install_source != AppSource::MacAppStore
+            && KEYSTONE_BUNDLE_IDS.iter().any(|&id| id == bundle_id)
     }
 
     async fn check(
@@ -87,7 +88,7 @@ impl UpdateChecker for KeystoneChecker {
                         available_version: release.version.clone(),
                         source_type: UpdateSourceType::Keystone,
                         download_url: None,
-                        release_notes_url: None,
+                        release_notes_url: Some("https://chromereleases.googleblog.com/".to_string()),
                         release_notes: None,
                         is_paid_upgrade: false,
                         notes: None,

@@ -3,6 +3,7 @@ pub mod homebrew_formula_executor;
 pub mod mas_executor;
 pub mod delegated_executor;
 pub mod sparkle_executor;
+pub mod microsoft_autoupdate_executor;
 
 use crate::models::UpdateResult;
 use crate::utils::AppResult;

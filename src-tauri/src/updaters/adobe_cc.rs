@@ -64,9 +64,10 @@ impl UpdateChecker for AdobeCCChecker {
         UpdateSourceType::AdobeCc
     }
 
-    fn can_check(&self, bundle_id: &str, _app_path: &Path, _install_source: &AppSource) -> bool {
-        ADOBE_BUNDLE_IDS.iter().any(|&id| bundle_id.eq_ignore_ascii_case(id))
-            || (bundle_id.starts_with("com.adobe.") && is_creative_tool(bundle_id))
+    fn can_check(&self, bundle_id: &str, _app_path: &Path, install_source: &AppSource) -> bool {
+        *install_source != AppSource::MacAppStore
+            && (ADOBE_BUNDLE_IDS.iter().any(|&id| bundle_id.eq_ignore_ascii_case(id))
+                || (bundle_id.starts_with("com.adobe.") && is_creative_tool(bundle_id)))
     }
 
     async fn check(
@@ -132,7 +133,39 @@ impl UpdateChecker for AdobeCCChecker {
             return Ok(Some(update));
         }
 
-        // 3) Try Homebrew cask index
+        // 3) Try macadmins.software feed (shared with Microsoft checker)
+        {
+            let sap = bundle_to_sap_code(bundle_id).unwrap_or("");
+            // Use the SAP code or app name for matching in the feed
+            let app_key = if !sap.is_empty() {
+                sap
+            } else {
+                bundle_id.strip_prefix("com.adobe.").unwrap_or(bundle_id)
+            };
+            if let Some(version) = super::macadmins_feed::check_macadmins_version(
+                app_key, bundle_id, client,
+            ).await {
+                if super::version_compare::is_newer(&current, &version) {
+                    log::info!(
+                        "Adobe CC: {} has update {} -> {} (from macadmins.software feed)",
+                        bundle_id, current, version
+                    );
+                    return Ok(Some(UpdateInfo {
+                        bundle_id: bundle_id.to_string(),
+                        current_version: Some(current.to_string()),
+                        available_version: version,
+                        source_type: UpdateSourceType::AdobeCc,
+                        download_url: None,
+                        release_notes_url: None,
+                        release_notes: None,
+                        is_paid_upgrade: false,
+                        notes: None,
+                    }));
+                }
+            }
+        }
+
+        // 4) Try Homebrew cask index
         log::warn!("Adobe CC: {} — CC cache and RUM found no update, trying Homebrew fallback", bundle_id);
         let index = match &context.homebrew_cask_index {
             Some(idx) => idx,
@@ -213,6 +246,20 @@ impl UpdateChecker for AdobeCCChecker {
             }));
         }
 
+        // If we have a cask token but couldn't find any update, suggest Homebrew install
+        let cask_token = context.homebrew_cask_token.as_deref()
+            .or_else(|| context.homebrew_cask_index.as_ref()
+                .and_then(|idx| idx.lookup_token(bundle_id, app_path)))
+            .or_else(|| lookup_hardcoded_token(bundle_id));
+
+        if let Some(token) = cask_token {
+            log::info!(
+                "Adobe CC: {} — no update detected, but cask token '{}' exists. \
+                 Installing via `brew install --cask {}` would enable automatic detection.",
+                bundle_id, token, token
+            );
+        }
+
         log::warn!(
             "Adobe CC: {} — no update detected across all methods (current version: {})",
             bundle_id, current
@@ -285,10 +332,22 @@ fn lookup_hardcoded_token(bundle_id: &str) -> Option<&'static str> {
 }
 
 /// Read the precise installed version from Adobe's local application.xml.
-/// Each Adobe app embeds version info at {app_path}/Contents/Resources/application.xml.
+/// Tries multiple known paths where Adobe stores version info.
 pub fn read_adobe_application_xml(app_path: &Path) -> Option<String> {
-    let xml_path = app_path.join("Contents/Resources/application.xml");
-    let content = std::fs::read_to_string(&xml_path).ok()?;
+    let paths = [
+        app_path.join("Contents/Resources/application.xml"),
+        app_path.join("Contents/Resources/AMT/application.xml"),
+        app_path.join("Contents/Resources/AdobeVersion.xml"),
+    ];
+
+    let content = paths.iter()
+        .find_map(|p| {
+            let result = std::fs::read_to_string(p).ok();
+            if result.is_some() {
+                log::info!("Adobe CC: reading version from {}", p.display());
+            }
+            result
+        })?;
 
     // Parse MajorVersion, MinorVersion, PatchVersion from the XML
     let major = extract_xml_element(&content, "MajorVersion")?;
@@ -356,6 +415,7 @@ fn cc_cache_dirs() -> Vec<std::path::PathBuf> {
         "Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPlugin/updater-data/v1/products",
         "Library/Application Support/Adobe/Adobe Desktop Common/HDBox/updater-data/v1/products",
         "Library/Application Support/Adobe/ACCC/HDBox/updater-data/v1/products",
+        "Library/Application Support/Adobe/Adobe Desktop Common/AppsPanel",
     ];
     for p in &known {
         let full = home.join(p);
@@ -371,6 +431,8 @@ fn cc_cache_dirs() -> Vec<std::path::PathBuf> {
     if adobe_support.is_dir() {
         let skip_names = [".", "Logs", "CoreSync"];
         recursive_find_products_dir(&adobe_support, 0, 6, &skip_names, &mut dirs);
+        // Also search for directories containing known JSON cache files
+        recursive_find_json_dirs(&adobe_support, 0, 5, &skip_names, &mut dirs);
     }
 
     log::info!("Adobe CC: discovered {} cache directories: {:?}",
@@ -425,6 +487,52 @@ fn recursive_find_products_dir(
 
         // Recurse deeper
         recursive_find_products_dir(&path, depth + 1, max_depth, skip_names, found);
+    }
+}
+
+/// Recursively search for directories containing known JSON cache files
+/// (application.json, update.json, product.json, manifest.json).
+fn recursive_find_json_dirs(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    skip_names: &[&str],
+    found: &mut Vec<std::path::PathBuf>,
+) {
+    if depth > max_depth {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        if skip_names.iter().any(|&s| name == s) {
+            continue;
+        }
+
+        // Check if this directory contains any of the known JSON files
+        let has_json = CACHE_JSON_FILENAMES
+            .iter()
+            .any(|&f| path.join(f).exists());
+
+        if has_json && !found.contains(&path) {
+            found.push(path.clone());
+        }
+
+        recursive_find_json_dirs(&path, depth + 1, max_depth, skip_names, found);
     }
 }
 

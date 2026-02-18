@@ -125,3 +125,26 @@ export interface ConnectivityStatus {
 export async function checkConnectivity(): Promise<ConnectivityStatus> {
   return invoke<ConnectivityStatus>("check_connectivity");
 }
+
+export interface CheckerDiagnostic {
+  source: string;
+  canCheck: boolean;
+  result: string;
+}
+
+export interface UpdateCheckDiagnostic {
+  bundleId: string;
+  appPath: string;
+  installedVersion: string | null;
+  installSource: string;
+  homebrewCaskToken: string | null;
+  checkersTried: CheckerDiagnostic[];
+}
+
+export async function debugUpdateCheck(bundleId: string): Promise<UpdateCheckDiagnostic> {
+  return invoke<UpdateCheckDiagnostic>("debug_update_check", { bundleId });
+}
+
+export async function checkPathsExist(paths: string[]): Promise<Record<string, boolean>> {
+  return invoke<Record<string, boolean>>("check_paths_exist", { paths });
+}
