@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "macplus"
-version = "0.2.44"
+version = "0.2.45"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2417,6 +2417,7 @@ dependencies = [
  "env_logger",
  "feed-rs",
  "futures",
+ "image",
  "libc",
  "log",
  "notify",

@@ -143,32 +143,39 @@ export function UpdateHistoryView() {
           </h2>
           <div className="flex flex-col gap-2">
             {group.map((entry) => (
-              <div
-                key={entry.id}
-                className="grid min-h-[44px] items-center rounded-lg border border-border bg-card px-3 grid-cols-[28px_1fr_auto] gap-2.5"
-              >
-                <AppIcon
-                  iconPath={entry.iconCachePath}
-                  displayName={entry.displayName}
-                  bundleId={entry.bundleId}
-                  size={28}
-                />
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-sm font-medium leading-tight">
-                    {entry.displayName}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
-                    <span className="text-muted-foreground">{entry.fromVersion}</span>
-                    <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
-                    <span className="text-muted-foreground">{entry.toVersion}</span>
+              <div key={entry.id} className="rounded-lg border border-border bg-card px-3">
+                <div className="grid min-h-[44px] items-center grid-cols-[28px_1fr_auto] gap-2.5">
+                  <AppIcon
+                    iconPath={entry.iconCachePath}
+                    displayName={entry.displayName}
+                    bundleId={entry.bundleId}
+                    size={28}
+                  />
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-medium leading-tight">
+                      {entry.displayName}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1 text-footnote leading-tight">
+                      <span className="text-muted-foreground">{entry.fromVersion}</span>
+                      <ArrowRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+                      <span className="text-muted-foreground">{entry.toVersion}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-footnote text-muted-foreground">
+                      {formatRelativeTime(entry.completedAt ?? entry.startedAt)}
+                    </span>
+                    <StatusBadge status={entry.status} />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-footnote text-muted-foreground">
-                    {formatRelativeTime(entry.completedAt ?? entry.startedAt)}
-                  </span>
-                  <StatusBadge status={entry.status} />
-                </div>
+                {entry.status === "failed" && entry.errorMessage && (
+                  <p
+                    className="truncate pb-2 text-[10px] text-destructive/70"
+                    title={entry.errorMessage}
+                  >
+                    {entry.errorMessage}
+                  </p>
+                )}
               </div>
             ))}
           </div>

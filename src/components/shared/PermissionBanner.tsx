@@ -8,7 +8,7 @@ import {
 } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 
-type PermKind = "appManagement" | "automation" | "notifications";
+type PermKind = "appManagement" | "automation" | "notifications" | "fullDiskAccess";
 
 interface PermItem {
   kind: PermKind;
@@ -22,9 +22,11 @@ function dotColor(state: string) {
   return "bg-muted-foreground/40";
 }
 
+const STORAGE_KEY = "macplus-permissions-granted";
+
 let _allGranted = false;
 
-/** Returns whether all 3 required permissions are granted. Subscribable from other components. */
+/** Returns whether all 4 required permissions are granted. Subscribable from other components. */
 export function usePermissionsGranted() {
   const [granted, setGranted] = useState(_allGranted);
   useEffect(() => {
@@ -38,7 +40,34 @@ export function usePermissionsGranted() {
 export function PermissionBanner() {
   const [perms, setPerms] = useState<PermissionsStatus | null>(null);
   const [triggeringAutomation, setTriggeringAutomation] = useState(false);
+  const [cachedGranted, setCachedGranted] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const updateAllGranted = useCallback((status: PermissionsStatus) => {
+    const allOk =
+      status.appManagement && status.automation && status.notifications && status.fullDiskAccess;
+    if (allOk) {
+      try {
+        localStorage.setItem(STORAGE_KEY, "true");
+      } catch {}
+      setCachedGranted(true);
+    } else {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+      setCachedGranted(false);
+    }
+    if (_allGranted !== allOk) {
+      _allGranted = allOk;
+      window.dispatchEvent(new Event("permissions-changed"));
+    }
+  }, []);
 
   const refresh = useCallback(() => {
     getPermissionsPassive()
@@ -51,21 +80,17 @@ export function PermissionBanner() {
           // Fall back to plist-based check if plugin fails
         }
         setPerms(status);
-        const allOk = status.appManagement && status.automation && status.notifications;
-        if (_allGranted !== allOk) {
-          _allGranted = allOk;
-          window.dispatchEvent(new Event("permissions-changed"));
-        }
+        updateAllGranted(status);
       })
       .catch(() => {});
-  }, []);
+  }, [updateAllGranted]);
 
   // Initial check on mount
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Re-check on visibilitychange with 1s debounce (user returns from System Settings)
+  // Re-check on visibilitychange with 5s debounce (user returns from System Settings)
   useEffect(() => {
     const handler = () => {
       if (document.visibilityState === "visible") {
@@ -80,6 +105,8 @@ export function PermissionBanner() {
     };
   }, [refresh]);
 
+  // If localStorage says all granted and we haven't loaded fresh data yet, hide banner
+  if (!perms && cachedGranted) return null;
   if (!perms) return null;
 
   const items: PermItem[] = [
@@ -97,6 +124,11 @@ export function PermissionBanner() {
       kind: "notifications",
       label: "Notifications",
       state: perms.notifications ? "granted" : "denied",
+    },
+    {
+      kind: "fullDiskAccess",
+      label: "Drive Access",
+      state: perms.fullDiskAccess ? "granted" : "denied",
     },
   ];
 
@@ -117,10 +149,14 @@ export function PermissionBanner() {
               }
             : prev,
         );
-        if (granted) {
-          const allOk = perms.appManagement && perms.notifications;
+        if (granted && perms) {
+          const allOk = perms.appManagement && perms.notifications && perms.fullDiskAccess;
           if (!_allGranted && allOk) {
             _allGranted = true;
+            try {
+              localStorage.setItem(STORAGE_KEY, "true");
+            } catch {}
+            setCachedGranted(true);
             window.dispatchEvent(new Event("permissions-changed"));
           }
         }
@@ -134,10 +170,16 @@ export function PermissionBanner() {
         const result = await requestPermission();
         if (result === "granted") {
           setPerms((prev) => (prev ? { ...prev, notifications: true } : prev));
-          const allOk = perms.appManagement && perms.automation;
-          if (!_allGranted && allOk) {
-            _allGranted = true;
-            window.dispatchEvent(new Event("permissions-changed"));
+          if (perms) {
+            const allOk = perms.appManagement && perms.automation && perms.fullDiskAccess;
+            if (!_allGranted && allOk) {
+              _allGranted = true;
+              try {
+                localStorage.setItem(STORAGE_KEY, "true");
+              } catch {}
+              setCachedGranted(true);
+              window.dispatchEvent(new Event("permissions-changed"));
+            }
           }
           return;
         }
@@ -145,6 +187,8 @@ export function PermissionBanner() {
         // Plugin unavailable or already asked — fall back to System Settings
       }
       await openSystemPreferences("notifications");
+    } else if (kind === "fullDiskAccess") {
+      await openSystemPreferences("full_disk_access");
     }
   };
 

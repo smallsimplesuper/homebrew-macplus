@@ -8,7 +8,6 @@ import {
   Download,
   EyeOff,
   FileText,
-  FolderSearch,
   Globe,
   Loader2,
   RefreshCw,
@@ -371,7 +370,7 @@ function RecentlyUpdated() {
         {recent.map((entry) => (
           <div
             key={entry.id}
-            className="grid min-h-[44px] items-center rounded-lg border border-border bg-card px-3 grid-cols-[28px_1fr_auto] gap-2.5"
+            className="grid min-h-[44px] items-center rounded-lg border border-border/50 bg-card px-3 grid-cols-[28px_1fr_auto] gap-2.5 opacity-60"
           >
             <AppIcon
               iconPath={entry.iconCachePath}
@@ -442,9 +441,7 @@ export function UpdatesOverview() {
   );
   const showCategories = nonEmptyCategories.length > 1;
 
-  const handleCheckNow = () => checkAll.mutate();
-
-  const handleScanSystem = () => {
+  const handleCheckNow = () => {
     fullScan.mutate(undefined, {
       onSuccess: () => checkAll.mutate(),
     });
@@ -493,7 +490,7 @@ export function UpdatesOverview() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleScanSystem}
+            onClick={handleCheckNow}
             disabled={!allPermissionsGranted || fullScan.isPending || checkAll.isPending}
             title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
             className={cn(
@@ -504,23 +501,12 @@ export function UpdatesOverview() {
               "disabled:opacity-50 disabled:cursor-not-allowed",
             )}
           >
-            <FolderSearch className={cn("h-3.5 w-3.5", fullScan.isPending && "animate-pulse")} />
-            Scan System
-          </button>
-          <button
-            type="button"
-            onClick={handleCheckNow}
-            disabled={!allPermissionsGranted || checkAll.isPending || fullScan.isPending}
-            title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg",
-              "border border-border bg-background px-3 py-1.5",
-              "text-xs font-medium text-foreground",
-              "transition-colors hover:bg-muted",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            )}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", checkAll.isPending && "animate-spin")} />
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                (fullScan.isPending || checkAll.isPending) && "animate-spin",
+              )}
+            />
             Check Now
           </button>
           {updateCount > 0 && (

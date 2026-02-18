@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Three-state permission result for UI display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,9 @@ impl PermissionState {
     }
 }
 
+/// Cache: once we know Automation is granted, remember it across TCC re-reads.
+static AUTOMATION_KNOWN_GRANTED: AtomicBool = AtomicBool::new(false);
+
 /// Check if the app has Full Disk Access by testing read access to a protected path.
 pub fn has_full_disk_access() -> bool {
     Path::new("/Library/Application Support/com.apple.TCC/TCC.db").exists()
@@ -35,21 +39,37 @@ pub fn has_full_disk_access() -> bool {
 pub fn check_automation_passive() -> PermissionState {
     let db_path = match dirs::home_dir() {
         Some(h) => h.join("Library/Application Support/com.apple.TCC/TCC.db"),
-        None => return PermissionState::Unknown,
+        None => {
+            return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+                PermissionState::Granted
+            } else {
+                PermissionState::Unknown
+            };
+        }
     };
 
     if !db_path.exists() {
-        return PermissionState::Unknown;
+        return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+            PermissionState::Granted
+        } else {
+            PermissionState::Unknown
+        };
     }
 
     // Open read-only with SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX
     let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = match rusqlite::Connection::open_with_flags(&db_path, flags) {
         Ok(c) => c,
-        Err(_) => return PermissionState::Unknown,
+        Err(_) => {
+            return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+                PermissionState::Granted
+            } else {
+                PermissionState::Unknown
+            };
+        }
     };
 
-    // auth_value: 2 = allowed, 0 = denied
+    // Try exact match first: client = 'com.macplus.app' targeting System Events
     let result = conn.query_row(
         "SELECT auth_value FROM access WHERE service = 'kTCCServiceAppleEvents' \
          AND client = 'com.macplus.app' \
@@ -59,9 +79,77 @@ pub fn check_automation_passive() -> PermissionState {
     );
 
     match result {
-        Ok(2) => PermissionState::Granted,
-        Ok(_) => PermissionState::Denied,
-        Err(_) => PermissionState::Unknown,
+        Ok(2) => {
+            AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            return PermissionState::Granted;
+        }
+        Ok(_) => return PermissionState::Denied,
+        Err(_) => {}
+    }
+
+    // Fallback: broader query — any Apple Events grant for our app targeting any Apple app
+    let broad_result = conn.query_row(
+        "SELECT auth_value FROM access WHERE service = 'kTCCServiceAppleEvents' \
+         AND client = 'com.macplus.app' \
+         AND indirect_object_identifier LIKE 'com.apple.%' \
+         LIMIT 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    );
+
+    match broad_result {
+        Ok(2) => {
+            AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            return PermissionState::Granted;
+        }
+        Ok(_) => return PermissionState::Denied,
+        Err(_) => {}
+    }
+
+    // TCC returned nothing — try a quick osascript probe if we haven't cached a grant
+    if !AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+        if quick_automation_probe() {
+            AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            return PermissionState::Granted;
+        }
+    }
+
+    if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+        PermissionState::Granted
+    } else {
+        PermissionState::Unknown
+    }
+}
+
+/// Quick, non-interactive probe: spawns osascript with a short timeout.
+/// If Automation is already granted, it completes instantly with no dialog.
+/// If not granted, kill it before the dialog can appear.
+fn quick_automation_probe() -> bool {
+    let mut child = match Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to return name of first process"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // 800ms — enough for a pre-granted call to complete, short enough to kill before dialog
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return false,
+        }
     }
 }
 
@@ -85,7 +173,13 @@ pub fn trigger_automation_permission() -> bool {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) => {
+                let granted = status.success();
+                if granted {
+                    AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+                }
+                return granted;
+            }
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();

@@ -130,6 +130,17 @@ export function SetupView() {
     refresh();
   }, [refresh]);
 
+  // Re-check when user returns from System Settings
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [refresh]);
+
   const handleInstallHomebrew = () => {
     openTerminalWithCommand(
       '/bin/bash -c \\"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\\"',
@@ -219,13 +230,12 @@ export function SetupView() {
                 : "Required to install and update apps in /Applications"
             }
             action={
-              !status.permissions.appManagement ? (
-                <ActionButton
-                  onClick={() => openSystemPreferences("app_management")}
-                  icon={<ExternalLink className="h-3 w-3" />}
-                  label="Grant"
-                />
-              ) : undefined
+              <ActionButton
+                onClick={() => openSystemPreferences("app_management")}
+                icon={<ExternalLink className="h-3 w-3" />}
+                label={status.permissions.appManagement ? "Manage" : "Grant"}
+                variant={status.permissions.appManagement ? "muted" : "primary"}
+              />
             }
           />
           <SetupRow
@@ -239,13 +249,12 @@ export function SetupView() {
                   : "Not yet requested — use the banner above to enable"
             }
             action={
-              !status.permissions.automation ? (
-                <ActionButton
-                  onClick={() => openSystemPreferences("automation")}
-                  icon={<ExternalLink className="h-3 w-3" />}
-                  label="Grant"
-                />
-              ) : undefined
+              <ActionButton
+                onClick={() => openSystemPreferences("automation")}
+                icon={<ExternalLink className="h-3 w-3" />}
+                label={status.permissions.automation ? "Manage" : "Grant"}
+                variant={status.permissions.automation ? "muted" : "primary"}
+              />
             }
           />
           <SetupRow
@@ -255,33 +264,35 @@ export function SetupView() {
               status.permissions.notifications ? "Granted" : "Required for background update alerts"
             }
             action={
-              !status.permissions.notifications ? (
-                <ActionButton
-                  onClick={() => openSystemPreferences("notifications")}
-                  icon={<Bell className="h-3 w-3" />}
-                  label="Grant"
-                />
-              ) : undefined
+              <ActionButton
+                onClick={() => openSystemPreferences("notifications")}
+                icon={
+                  status.permissions.notifications ? (
+                    <ExternalLink className="h-3 w-3" />
+                  ) : (
+                    <Bell className="h-3 w-3" />
+                  )
+                }
+                label={status.permissions.notifications ? "Manage" : "Grant"}
+                variant={status.permissions.notifications ? "muted" : "primary"}
+              />
             }
           />
           <SetupRow
             ok={status.permissions.fullDiskAccess}
-            optional
             label="Full Disk Access"
             description={
               status.permissions.fullDiskAccess
                 ? "Granted"
-                : "Optional — for scanning protected directories"
+                : "Required for scanning protected directories"
             }
             action={
-              !status.permissions.fullDiskAccess ? (
-                <ActionButton
-                  onClick={() => openSystemPreferences("full_disk_access")}
-                  icon={<ExternalLink className="h-3 w-3" />}
-                  label="Grant"
-                  variant="muted"
-                />
-              ) : undefined
+              <ActionButton
+                onClick={() => openSystemPreferences("full_disk_access")}
+                icon={<ExternalLink className="h-3 w-3" />}
+                label={status.permissions.fullDiskAccess ? "Manage" : "Grant"}
+                variant={status.permissions.fullDiskAccess ? "muted" : "primary"}
+              />
             }
           />
         </div>

@@ -521,7 +521,7 @@ pub async fn run_update_check(
             .title("macPlus")
             .body(&body);
         if settings.notification_sound {
-            builder = builder.sound("default");
+            builder = builder.sound("Glass");
         }
         let _ = builder.show();
     }
@@ -535,15 +535,21 @@ pub async fn run_update_check(
         };
         let _ = tray.set_tooltip(Some(&tooltip));
 
-        // Swap tray icon based on update availability
-        let icon_path = if db_count > 0 {
-            app_handle.path().resolve("icons/tray-icon-update.png", tauri::path::BaseDirectory::Resource)
-        } else {
-            app_handle.path().resolve("icons/tray-icon.png", tauri::path::BaseDirectory::Resource)
-        };
-        if let Ok(path) = icon_path {
-            if let Ok(bytes) = std::fs::read(&path) {
-                if let Ok(icon) = tauri::image::Image::from_bytes(&bytes) {
+        // Render tray icon — with numbered badge if enabled and updates available
+        let base_icon_path = app_handle.path().resolve("icons/tray-icon.png", tauri::path::BaseDirectory::Resource);
+        if let Ok(path) = base_icon_path {
+            if let Ok(base_bytes) = std::fs::read(&path) {
+                let icon_bytes = if settings.show_badge_count && db_count > 0 {
+                    crate::platform::tray_badge::render_tray_icon_with_badge(&base_bytes, db_count)
+                        .unwrap_or_else(|| base_bytes.clone())
+                } else if db_count > 0 {
+                    // Fallback: use static update icon when badge count is disabled
+                    let update_path = app_handle.path().resolve("icons/tray-icon-update.png", tauri::path::BaseDirectory::Resource);
+                    update_path.ok().and_then(|p| std::fs::read(p).ok()).unwrap_or(base_bytes.clone())
+                } else {
+                    base_bytes.clone()
+                };
+                if let Ok(icon) = tauri::image::Image::from_bytes(&icon_bytes) {
                     let _ = tray.set_icon(Some(icon.to_owned()));
                 }
             }

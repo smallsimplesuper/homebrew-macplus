@@ -1,3 +1,4 @@
+import { useState } from "react";
 import S3Logo from "@/components/shared/S3Logo";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { useScanProgress } from "@/hooks/useScanProgress";
@@ -11,6 +12,65 @@ interface StatusBarProps {
   className?: string;
 }
 
+function ConnectivityPopover({
+  details,
+  status,
+}: {
+  details: { github: boolean; homebrew: boolean; itunes: boolean } | undefined;
+  status: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const connectivityColor =
+    status === "connected" ? "bg-green-500" : status === "partial" ? "bg-orange-400" : "bg-red-500";
+
+  const services = details
+    ? [
+        { name: "GitHub API", ok: details.github },
+        { name: "Homebrew API", ok: details.homebrew },
+        { name: "iTunes API", ok: details.itunes },
+      ]
+    : [];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="flex items-center"
+      >
+        <div className={cn("h-2 w-2 rounded-full", connectivityColor)} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border bg-popover p-2 shadow-lg">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Service Status
+          </p>
+          <div className="flex flex-col gap-1">
+            {services.map((svc) => (
+              <div key={svc.name} className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      svc.ok ? "bg-green-500" : "bg-red-500",
+                    )}
+                  />
+                  <span className="text-xs text-foreground/80">{svc.name}</span>
+                </div>
+                <span className="text-[10px] text-muted-foreground">
+                  {svc.ok ? "Connected" : "Offline"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StatusBar({
   appCount,
   updateCount = 0,
@@ -19,7 +79,7 @@ export default function StatusBar({
 }: StatusBarProps) {
   const { progress: scanProgress, isScanning } = useScanProgress();
   const { progress: checkProgress, isChecking, lastChecked } = useUpdateCheckProgress();
-  const { status: connectivity } = useConnectivity();
+  const { status: connectivity, details: connectivityDetails } = useConnectivity();
 
   const formatLastChecked = (date: Date): string => {
     const now = new Date();
@@ -36,68 +96,65 @@ export default function StatusBar({
     return `${diffDays}d ago`;
   };
 
+  // Right-side fixed elements (version + connectivity + logo)
+  const rightSection = (
+    <div className="ml-2 flex shrink-0 items-center gap-2">
+      <span className="text-muted-foreground/40">v{__APP_VERSION__}</span>
+      <ConnectivityPopover details={connectivityDetails} status={connectivity} />
+      <S3Logo className="opacity-40 transition-opacity hover:opacity-70" />
+    </div>
+  );
+
   // Priority: scanning > checking > idle
   const renderContent = () => {
     if (isScanning && scanProgress) {
+      const percent =
+        scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0;
+
       return (
-        <div className="flex flex-1 items-center gap-2 text-footnote tabular-nums text-muted-foreground transition-opacity duration-200">
-          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary shadow-[0_0_6px_var(--primary)] transition-all duration-300"
-              style={{
-                width:
-                  scanProgress.total > 0
-                    ? `${(scanProgress.current / scanProgress.total) * 100}%`
-                    : "0%",
-              }}
-            />
+        <div className="flex flex-1 items-center gap-2">
+          <div className="flex flex-1 flex-col gap-0.5">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary shadow-[0_0_6px_var(--primary)] transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              Scanning
+              {scanProgress.phase ? ` \u2014 ${scanProgress.phase}` : ""}
+              {scanProgress.appName ? `: ${scanProgress.appName}` : ""}
+              {scanProgress.total > 0 ? ` (${scanProgress.current}/${scanProgress.total})` : ""}
+            </span>
           </div>
-          <span>
-            Scanning for apps
-            {scanProgress.phase ? ` \u2014 ${scanProgress.phase}` : ""}
-            {scanProgress.appName ? `: ${scanProgress.appName}` : ""}
-            {scanProgress.total > 0 ? ` (${scanProgress.current}/${scanProgress.total})` : ""}
-          </span>
+          {rightSection}
         </div>
       );
     }
 
     if (isChecking && checkProgress) {
+      const percent =
+        checkProgress.total > 0 ? (checkProgress.checked / checkProgress.total) * 100 : 0;
+
       return (
-        <div className="flex flex-1 items-center gap-2 text-footnote tabular-nums text-muted-foreground transition-opacity duration-200">
-          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary shadow-[0_0_6px_var(--primary)] transition-all duration-300"
-              style={{
-                width:
-                  checkProgress.total > 0
-                    ? `${(checkProgress.checked / checkProgress.total) * 100}%`
-                    : "0%",
-              }}
-            />
+        <div className="flex flex-1 items-center gap-2">
+          <div className="flex flex-1 flex-col gap-0.5">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary shadow-[0_0_6px_var(--primary)] transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              Checking updates
+              {checkProgress.currentApp ? ` \u2014 ${checkProgress.currentApp}` : ""}
+              {checkProgress.total > 0 ? ` (${checkProgress.checked}/${checkProgress.total})` : ""}
+            </span>
           </div>
-          <span>
-            Checking for updates
-            {checkProgress.currentApp ? `: ${checkProgress.currentApp}` : ""}
-            {checkProgress.total > 0 ? ` (${checkProgress.checked}/${checkProgress.total})` : ""}
-          </span>
+          {rightSection}
         </div>
       );
     }
-
-    const connectivityColor =
-      connectivity === "connected"
-        ? "bg-green-500"
-        : connectivity === "partial"
-          ? "bg-orange-400"
-          : "bg-red-500";
-
-    const connectivityTooltip =
-      connectivity === "connected"
-        ? "Connected to all services"
-        : connectivity === "partial"
-          ? "Connected to some services"
-          : "No services connected — check internet";
 
     return (
       <div className="flex flex-1 items-center gap-1 text-footnote tabular-nums text-muted-foreground">
@@ -116,16 +173,7 @@ export default function StatusBar({
             <span>Checked {formatLastChecked(lastChecked)}</span>
           </>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-muted-foreground/40">v{__APP_VERSION__}</span>
-          <div className="group relative">
-            <div className={cn("h-2 w-2 rounded-full", connectivityColor)} />
-            <div className="absolute bottom-full right-0 mb-1.5 hidden whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md group-hover:block">
-              {connectivityTooltip}
-            </div>
-          </div>
-          <S3Logo className="opacity-40 transition-opacity hover:opacity-70" />
-        </div>
+        {rightSection}
       </div>
     );
   };
@@ -133,7 +181,7 @@ export default function StatusBar({
   return (
     <div className={cn("shrink-0", className)}>
       <div className="statusbar-glow" />
-      <div className="flex h-7 items-center bg-[var(--statusbar-bg)] px-4 backdrop-blur-xl">
+      <div className="flex h-7 items-center bg-[var(--statusbar-bg)] px-4 backdrop-blur-xl text-footnote">
         {renderContent()}
       </div>
     </div>

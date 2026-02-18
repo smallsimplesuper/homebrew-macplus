@@ -257,7 +257,7 @@ pub async fn execute_update(
 
             let mut builder = app_handle.notification().builder().title("macPlus").body(&body);
             if settings.notification_sound {
-                builder = builder.sound("default");
+                builder = builder.sound("Glass");
             }
             let _ = builder.show();
         }
