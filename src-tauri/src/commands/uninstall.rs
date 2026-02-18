@@ -5,10 +5,20 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 use crate::db::Database;
-use crate::models::{AssociatedFile, AssociatedFiles, UninstallResult};
+use crate::models::{AssociatedFile, AssociatedFiles, UninstallProgress, UninstallResult};
 use crate::utils::brew::{brew_command, brew_path};
 use crate::utils::sudo_session::run_elevated_shell;
 use crate::utils::AppError;
+
+fn emit_uninstall_progress(app: &AppHandle, phase: &str, percent: u8) {
+    let _ = app.emit(
+        "uninstall-progress",
+        UninstallProgress {
+            phase: phase.to_string(),
+            percent,
+        },
+    );
+}
 
 /// Move a path to Trash via Finder AppleScript (reversible).
 fn move_to_trash(path: &str) -> Result<(), String> {
@@ -372,6 +382,9 @@ pub async fn uninstall_app(
     }
 
     // Route to uninstall method
+    emit_uninstall_progress(&app_handle, "Preparing...", 0);
+    emit_uninstall_progress(&app_handle, &format!("Uninstalling {}...", display_name), 20);
+
     let uninstall_result = if let Some(ref token) = homebrew_cask_token {
         let token = token.clone();
         tokio::task::spawn_blocking(move || uninstall_homebrew_cask(&token)).await
@@ -400,9 +413,17 @@ pub async fn uninstall_app(
         Err(e) => (false, Some(format!("Task failed: {}", e))),
     };
 
+    let phase_msg = if success {
+        format!("Uninstalled {}", display_name)
+    } else {
+        "Uninstall failed".to_string()
+    };
+    emit_uninstall_progress(&app_handle, &phase_msg, 50);
+
     // Associated file cleanup
     let mut cleaned_paths = Vec::new();
     if success && cleanup_associated {
+        emit_uninstall_progress(&app_handle, "Scanning associated files...", 55);
         let bid = bundle_id.clone();
         let dname = display_name.clone();
         let associated =
@@ -410,7 +431,11 @@ pub async fn uninstall_app(
                 .await
                 .unwrap_or_default();
 
-        for file in &associated {
+        let file_count = associated.len();
+        for (i, file) in associated.iter().enumerate() {
+            let pct = 60 + ((i as u8) * 25 / (file_count.max(1) as u8)).min(25);
+            let short_path = file.path.rsplit('/').next().unwrap_or(&file.path);
+            emit_uninstall_progress(&app_handle, &format!("Cleaning up {}...", short_path), pct);
             let path = file.path.clone();
             let result = tokio::task::spawn_blocking(move || move_to_trash(&path)).await;
             if let Ok(Ok(())) = result {
@@ -420,6 +445,7 @@ pub async fn uninstall_app(
     }
 
     // Database cleanup
+    emit_uninstall_progress(&app_handle, "Cleaning database...", 90);
     if success {
         let db_guard = db.lock().await;
         let _ = db_guard.delete_app(&bundle_id);
@@ -427,6 +453,28 @@ pub async fn uninstall_app(
         // Clean up icon cache file
         if let Some(icon_path) = &icon_cache_path {
             let _ = std::fs::remove_file(icon_path);
+        }
+    }
+
+    emit_uninstall_progress(&app_handle, "Complete", 100);
+
+    // Native notification
+    if success {
+        use tauri_plugin_notification::NotificationExt;
+        let db_guard = db.lock().await;
+        let settings = crate::scheduler::load_settings_from_db(&db_guard);
+        drop(db_guard);
+
+        if settings.notification_on_updates {
+            let mut builder = app_handle
+                .notification()
+                .builder()
+                .title("macPlus")
+                .body(&format!("{} has been uninstalled", display_name));
+            if settings.notification_sound {
+                builder = builder.sound("Glass");
+            }
+            let _ = builder.show();
         }
     }
 

@@ -1,5 +1,5 @@
-import { motion } from "framer-motion";
 import { RefreshCw } from "lucide-react";
+import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { springs } from "@/lib/animations";
 import { cn } from "@/lib/utils";

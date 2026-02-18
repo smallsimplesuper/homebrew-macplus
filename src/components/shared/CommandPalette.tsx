@@ -1,6 +1,6 @@
 import { Command } from "cmdk";
-import { AnimatePresence, motion } from "framer-motion";
 import { EyeOff, MonitorSmartphone, RefreshCw, Search } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect } from "react";
 import { useApps } from "@/hooks/useApps";
 import { springs } from "@/lib/animations";

@@ -1,7 +1,7 @@
 {
   "name": "macplus",
   "private": true,
-  "version": "0.2.47",
+  "version": "0.2.49",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -24,8 +24,8 @@
     "@tauri-apps/plugin-updater": "^2",
     "clsx": "^2.1.0",
     "cmdk": "^1.1.0",
-    "framer-motion": "^12.0.0",
     "lucide-react": "^0.574.0",
+    "motion": "^12.34.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sonner": "^2.0.7",

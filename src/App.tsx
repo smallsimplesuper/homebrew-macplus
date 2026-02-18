@@ -3,7 +3,7 @@ import {
   disable as disableAutostart,
   enable as enableAutostart,
 } from "@tauri-apps/plugin-autostart";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import { Toaster } from "sonner";
 import { AppDetailSheet } from "@/components/app-detail/AppDetailSheet";

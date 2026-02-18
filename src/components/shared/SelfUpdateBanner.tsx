@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
-import { motion } from "framer-motion";
 import { ArrowUpCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { formatDownloadProgress } from "@/lib/format-bytes";
 import {

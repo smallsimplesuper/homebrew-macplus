@@ -9,6 +9,10 @@ pub fn deduplicate(apps: Vec<DetectedApp>) -> Vec<DetectedApp> {
         if app.bundle_id.is_empty() {
             continue;
         }
+        // Filter Apple system/service apps
+        if app.bundle_id.starts_with("com.apple.") {
+            continue;
+        }
 
         match by_bundle_id.get_mut(&app.bundle_id) {
             Some(existing) => {

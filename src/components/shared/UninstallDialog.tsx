@@ -1,10 +1,11 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, Loader2, ShieldAlert, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, PackageMinus, ShieldAlert } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { useUninstallApp } from "@/hooks/useApps";
+import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { springs } from "@/lib/animations";
-import type { AssociatedFiles } from "@/lib/tauri-commands";
+import type { AssociatedFiles, UninstallProgress } from "@/lib/tauri-commands";
 import { scanAssociatedFiles } from "@/lib/tauri-commands";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/uiStore";
@@ -53,6 +54,13 @@ export function UninstallDialog() {
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [cleanupChecked, setCleanupChecked] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
+  const [progress, setProgress] = useState<UninstallProgress | null>(null);
+
+  useTauriEvent<UninstallProgress>("uninstall-progress", (payload) => {
+    if (uninstall.isPending) {
+      setProgress(payload);
+    }
+  });
 
   const isSystemApp =
     target?.appPath.startsWith("/System/Applications/") ||
@@ -67,6 +75,7 @@ export function UninstallDialog() {
       setAssociatedFiles(null);
       setCleanupChecked(false);
       setFilesExpanded(false);
+      setProgress(null);
       return;
     }
 
@@ -158,6 +167,23 @@ export function UninstallDialog() {
                   <p className="mt-4 text-center text-xs text-muted-foreground">
                     This will move <strong>{target.displayName}</strong> to the Trash.
                   </p>
+
+                  {/* Progress bar */}
+                  {uninstall.isPending && progress && (
+                    <div className="mt-3">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <motion.div
+                          className="h-full rounded-full bg-destructive"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress.percent}%` }}
+                          transition={{ duration: 0.3, ease: "easeOut" }}
+                        />
+                      </div>
+                      <p className="mt-1 text-center text-[10px] text-muted-foreground">
+                        {progress.phase}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Associated files section */}
                   <div className="mt-4">
@@ -272,7 +298,7 @@ export function UninstallDialog() {
                   {uninstall.isPending ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <Trash2 className="h-3 w-3" />
+                    <PackageMinus className="h-3 w-3" />
                   )}
                   Move to Trash
                 </button>

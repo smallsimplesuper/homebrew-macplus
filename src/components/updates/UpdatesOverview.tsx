@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-shell";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
   CheckCircle,
@@ -10,9 +9,10 @@ import {
   FileText,
   Globe,
   Loader2,
+  PackageMinus,
   RefreshCw,
-  Trash2,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection";
 import { AppIcon } from "@/components/app-list/AppIcon";
@@ -196,31 +196,6 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
               >
                 <EyeOff className="h-3.5 w-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setUninstallTarget({
-                    bundleId: app.bundleId,
-                    displayName: app.displayName,
-                    appPath: app.appPath,
-                    installSource: app.installSource,
-                    iconCachePath: app.iconCachePath,
-                    installedVersion: app.installedVersion,
-                    homebrewCaskToken: app.homebrewCaskToken,
-                    homebrewFormulaName: app.homebrewFormulaName,
-                  })
-                }
-                className={cn(
-                  "flex shrink-0 items-center justify-center rounded-md",
-                  "h-7 w-7 text-muted-foreground",
-                  "opacity-0 transition-all group-hover:opacity-100",
-                  "hover:bg-destructive/10 hover:text-destructive",
-                )}
-                title="Uninstall"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-
               {hasChangelog && (
                 <button
                   type="button"
@@ -238,6 +213,30 @@ function UpdateCard({ app, onUpdate }: { app: AppSummary; onUpdate: (bundleId: s
               )}
 
               <InfoPopover app={app} />
+
+              <button
+                type="button"
+                onClick={() =>
+                  setUninstallTarget({
+                    bundleId: app.bundleId,
+                    displayName: app.displayName,
+                    appPath: app.appPath,
+                    installSource: app.installSource,
+                    iconCachePath: app.iconCachePath,
+                    installedVersion: app.installedVersion,
+                    homebrewCaskToken: app.homebrewCaskToken,
+                    homebrewFormulaName: app.homebrewFormulaName,
+                  })
+                }
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-md",
+                  "h-7 w-7 text-muted-foreground",
+                  "transition-colors hover:bg-destructive/10 hover:text-destructive",
+                )}
+                title="Uninstall"
+              >
+                <PackageMinus className="h-3.5 w-3.5" />
+              </button>
 
               {relaunch ? (
                 <RelaunchButton

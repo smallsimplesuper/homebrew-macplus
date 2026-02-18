@@ -1,5 +1,4 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { motion } from "framer-motion";
 import {
   ArrowDownCircle,
   Clock,
@@ -10,6 +9,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import { motion } from "motion/react";
 import MacPlusLogo from "@/components/shared/MacPlusLogo";
 import { springs } from "@/lib/animations";
 import { cn } from "@/lib/utils";

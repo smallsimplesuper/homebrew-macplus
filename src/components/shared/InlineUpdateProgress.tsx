@@ -1,5 +1,5 @@
-import { motion } from "framer-motion";
 import { Loader2, RotateCcw } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { formatDownloadProgress } from "@/lib/format-bytes";
 import { relaunchApp } from "@/lib/tauri-commands";

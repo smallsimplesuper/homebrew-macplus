@@ -1,5 +1,5 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { Bug, Eye, EyeOff, FolderOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { Bug, Eye, EyeOff, FolderOpen, PackageMinus, Play, RefreshCw, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { useAppDetail, useToggleIgnored } from "@/hooks/useApps";
@@ -262,7 +262,7 @@ export function AppDetailSheet() {
                       "transition-colors hover:bg-destructive/10",
                     )}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <PackageMinus className="h-3.5 w-3.5" />
                     Uninstall
                   </button>
                   <button

@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { ScanComplete, UpdateCheckComplete, UpdateExecuteComplete } from "@/types/update";
@@ -65,6 +65,29 @@ export function useToastNotifications() {
     } else {
       toast.success("All apps are up to date", {
         id: "update-check",
+      });
+    }
+  });
+
+  useTauriEvent<{
+    bundleId: string;
+    displayName: string;
+    success: boolean;
+    cleanedPaths: string[];
+    message?: string;
+  }>("app-uninstalled", (payload) => {
+    if (payload.success) {
+      toast.success(`${payload.displayName} uninstalled`, {
+        id: `uninstall-${payload.bundleId}`,
+        description:
+          payload.cleanedPaths.length > 0
+            ? `Cleaned ${payload.cleanedPaths.length} associated file${payload.cleanedPaths.length === 1 ? "" : "s"}`
+            : undefined,
+      });
+    } else {
+      toast.error(`Failed to uninstall ${payload.displayName}`, {
+        id: `uninstall-error-${payload.bundleId}`,
+        description: payload.message ?? undefined,
       });
     }
   });

@@ -175,6 +175,11 @@ export async function checkPathsExist(paths: string[]): Promise<Record<string, b
   return invoke<Record<string, boolean>>("check_paths_exist", { paths });
 }
 
+export interface UninstallProgress {
+  phase: string;
+  percent: number;
+}
+
 export interface UninstallResult {
   bundleId: string;
   success: boolean;
