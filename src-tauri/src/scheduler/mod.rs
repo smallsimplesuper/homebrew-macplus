@@ -98,12 +98,12 @@ pub async fn run_full_scan(
                 drop(db_guard);
 
                 let apps_needing_icons_count = apps_needing_icons.len();
-                // Extract icons in parallel (up to 8 concurrent tasks)
+                // Extract icons in parallel (up to 16 concurrent tasks)
                 let icons_dir = Arc::new(icons_dir);
                 let icon_results: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
                 stream::iter(apps_needing_icons)
-                    .for_each_concurrent(8, |(bundle_id, app_path)| {
+                    .for_each_concurrent(16, |(bundle_id, app_path)| {
                         let icons_dir = icons_dir.clone();
                         let icon_results = icon_results.clone();
                         async move {

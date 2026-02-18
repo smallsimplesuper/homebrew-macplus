@@ -592,7 +592,6 @@ version = "0.4.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00828ba6fd27b45a448e57dbfe84f1029d4c9f26b368157e9a448a5f49a2ec2a"
 dependencies = [
- "brotli",
  "compression-core",
  "flate2",
  "memchr",
@@ -2409,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "macplus"
-version = "0.2.40"
+version = "0.2.41"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5072,7 +5071,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

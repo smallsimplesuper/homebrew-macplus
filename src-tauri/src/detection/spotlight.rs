@@ -19,7 +19,7 @@ impl AppDetector for SpotlightDetector {
         let output = run_command_with_timeout(
             "mdfind",
             &["kMDItemContentType == 'com.apple.application-bundle'"],
-            15,
+            5,
         )
         .await
         .map_err(|e| AppError::CommandFailed(format!("mdfind: {}", e)))?;

@@ -12,7 +12,11 @@ use crate::utils::{is_browser_extension, AppResult};
 struct CaskIndexCache {
     etag: Option<String>,
     index: Option<HomebrewCaskIndex>,
+    fetched_at: Option<std::time::Instant>,
 }
+
+/// TTL for the cask index cache — skip network requests if the cached index is fresh.
+const CASK_INDEX_TTL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60); // 6 hours
 
 fn cask_cache() -> &'static RwLock<CaskIndexCache> {
     static CACHE: OnceLock<RwLock<CaskIndexCache>> = OnceLock::new();
@@ -20,6 +24,7 @@ fn cask_cache() -> &'static RwLock<CaskIndexCache> {
         RwLock::new(CaskIndexCache {
             etag: None,
             index: None,
+            fetched_at: None,
         })
     })
 }
@@ -269,6 +274,17 @@ fn build_index(json: &[serde_json::Value]) -> HomebrewCaskIndex {
 pub async fn fetch_cask_index(client: &reqwest::Client) -> Option<HomebrewCaskIndex> {
     let url = "https://formulae.brew.sh/api/cask.json";
 
+    // Return cached index if within TTL — skip the network request entirely
+    {
+        let cache = cask_cache().read().await;
+        if let (Some(ref index), Some(fetched_at)) = (&cache.index, cache.fetched_at) {
+            if fetched_at.elapsed() < CASK_INDEX_TTL {
+                log::info!("Homebrew cask index cache hit (age: {}s)", fetched_at.elapsed().as_secs());
+                return Some(index.clone());
+            }
+        }
+    }
+
     // Read cached ETag (if any) under a short-lived read lock
     let cached_etag = {
         let cache = cask_cache().read().await;
@@ -293,10 +309,11 @@ pub async fn fetch_cask_index(client: &reqwest::Client) -> Option<HomebrewCaskIn
 
     let status = resp.status();
 
-    // 304 Not Modified — return cached index
+    // 304 Not Modified — refresh TTL and return cached index
     if status == reqwest::StatusCode::NOT_MODIFIED {
         log::info!("Homebrew cask index unchanged (304)");
-        let cache = cask_cache().read().await;
+        let mut cache = cask_cache().write().await;
+        cache.fetched_at = Some(std::time::Instant::now());
         return cache.index.clone();
     }
 
@@ -327,11 +344,12 @@ pub async fn fetch_cask_index(client: &reqwest::Client) -> Option<HomebrewCaskIn
 
     let index = build_index(&json);
 
-    // Update cache
+    // Update cache with fresh TTL
     {
         let mut cache = cask_cache().write().await;
         cache.etag = new_etag;
         cache.index = Some(index.clone());
+        cache.fetched_at = Some(std::time::Instant::now());
     }
 
     Some(index)

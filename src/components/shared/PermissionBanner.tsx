@@ -1,3 +1,4 @@
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getPermissionsPassive,
@@ -41,7 +42,14 @@ export function PermissionBanner() {
 
   const refresh = useCallback(() => {
     getPermissionsPassive()
-      .then((status) => {
+      .then(async (status) => {
+        // Override plist-based notification check with the reliable native API
+        try {
+          const notifGranted = await isPermissionGranted();
+          status.notifications = notifGranted;
+        } catch {
+          // Fall back to plist-based check if plugin fails
+        }
         setPerms(status);
         const allOk = status.appManagement && status.automation && status.notifications;
         if (_allGranted !== allOk) {
@@ -62,7 +70,7 @@ export function PermissionBanner() {
     const handler = () => {
       if (document.visibilityState === "visible") {
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(refresh, 1000);
+        debounceRef.current = setTimeout(refresh, 5000);
       }
     };
     document.addEventListener("visibilitychange", handler);
@@ -122,6 +130,20 @@ export function PermissionBanner() {
     } else if (kind === "appManagement") {
       await openSystemPreferences("app_management");
     } else if (kind === "notifications") {
+      try {
+        const result = await requestPermission();
+        if (result === "granted") {
+          setPerms((prev) => (prev ? { ...prev, notifications: true } : prev));
+          const allOk = perms.appManagement && perms.automation;
+          if (!_allGranted && allOk) {
+            _allGranted = true;
+            window.dispatchEvent(new Event("permissions-changed"));
+          }
+          return;
+        }
+      } catch {
+        // Plugin unavailable or already asked — fall back to System Settings
+      }
       await openSystemPreferences("notifications");
     }
   };

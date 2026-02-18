@@ -1,6 +1,6 @@
 [package]
 name = "macplus"
-version = "0.2.40"
+version = "0.2.41"
 edition = "2021"
 rust-version = "1.77"
 
@@ -16,8 +16,8 @@ tauri-plugin-fs = "2"
 window-vibrancy = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "io-util", "process"] }
+reqwest = { version = "0.13", features = ["json", "stream", "gzip"] }
 rusqlite = { version = "0.38", features = ["bundled"] }
 plist = "1"
 feed-rs = "2"

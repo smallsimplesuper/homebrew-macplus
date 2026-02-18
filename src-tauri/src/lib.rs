@@ -154,7 +154,7 @@ pub fn run() {
                     let _ = std::fs::remove_dir_all(backup);
                 }
                 if let Ok(entries) = std::fs::read_dir("/tmp") {
-                    for entry in entries.flatten() {
+                    for entry in entries.flatten().take(200) {
                         let name = entry.file_name();
                         let name = name.to_string_lossy();
                         if name.starts_with("macplus-update-") || name.starts_with("macplus-self-update-") {
