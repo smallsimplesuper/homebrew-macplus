@@ -1,5 +1,4 @@
-use std::ffi::CString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -28,10 +27,35 @@ impl PermissionState {
 /// Cache: once we know Automation is granted, remember it across TCC re-reads.
 static AUTOMATION_KNOWN_GRANTED: AtomicBool = AtomicBool::new(false);
 
-/// Check if the app has Full Disk Access by testing read access to a protected path.
+// ---------------------------------------------------------------------------
+// Persistent automation cache (survives app restarts)
+// ---------------------------------------------------------------------------
+
+fn automation_cache_path() -> Option<PathBuf> {
+    dirs::cache_dir().map(|d| d.join("com.macplus.app").join("automation_granted"))
+}
+
+fn write_automation_cache() {
+    if let Some(path) = automation_cache_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, b"1");
+        log::debug!("automation: wrote persistent cache at {:?}", path);
+    }
+}
+
+fn clear_automation_cache() {
+    if let Some(path) = automation_cache_path() {
+        let _ = std::fs::remove_file(&path);
+        log::debug!("automation: cleared persistent cache at {:?}", path);
+    }
+}
+
+/// Check if the app has Full Disk Access by attempting to open a TCC-protected file.
+/// `File::open()` acquires a read fd which triggers TCC enforcement, unlike `stat()`.
 pub fn has_full_disk_access() -> bool {
-    Path::new("/Library/Application Support/com.apple.TCC/TCC.db").exists()
-        && std::fs::metadata("/Library/Application Support/com.apple.TCC/TCC.db").is_ok()
+    std::fs::File::open("/Library/Application Support/com.apple.TCC/TCC.db").is_ok()
 }
 
 /// Passively check Automation (Apple Events) permission by reading the user TCC database.
@@ -40,6 +64,7 @@ pub fn check_automation_passive() -> PermissionState {
     let db_path = match dirs::home_dir() {
         Some(h) => h.join("Library/Application Support/com.apple.TCC/TCC.db"),
         None => {
+            log::debug!("automation: no home dir, falling back to in-memory cache");
             return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
                 PermissionState::Granted
             } else {
@@ -49,6 +74,7 @@ pub fn check_automation_passive() -> PermissionState {
     };
 
     if !db_path.exists() {
+        log::debug!("automation: TCC db not found at {:?}", db_path);
         return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
             PermissionState::Granted
         } else {
@@ -60,7 +86,8 @@ pub fn check_automation_passive() -> PermissionState {
     let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = match rusqlite::Connection::open_with_flags(&db_path, flags) {
         Ok(c) => c,
-        Err(_) => {
+        Err(e) => {
+            log::debug!("automation: failed to open TCC db: {e}");
             return if AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
                 PermissionState::Granted
             } else {
@@ -81,9 +108,13 @@ pub fn check_automation_passive() -> PermissionState {
     match result {
         Ok(2) => {
             AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            log::debug!("automation: granted via TCC exact match");
             return PermissionState::Granted;
         }
-        Ok(_) => return PermissionState::Denied,
+        Ok(val) => {
+            log::debug!("automation: denied via TCC exact match (auth_value={val})");
+            return PermissionState::Denied;
+        }
         Err(_) => {}
     }
 
@@ -100,16 +131,51 @@ pub fn check_automation_passive() -> PermissionState {
     match broad_result {
         Ok(2) => {
             AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            log::debug!("automation: granted via TCC broad match");
             return PermissionState::Granted;
         }
-        Ok(_) => return PermissionState::Denied,
-        Err(_) => {}
+        Ok(val) => {
+            log::debug!("automation: denied via TCC broad match (auth_value={val})");
+            return PermissionState::Denied;
+        }
+        Err(_) => {
+            log::debug!("automation: no TCC rows found for our bundle ID");
+        }
     }
 
-    // TCC returned nothing — try a quick osascript probe if we haven't cached a grant
+    // TCC returned nothing — check persistent file cache from a prior session
     if !AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
-        if quick_automation_probe() {
+        if let Some(cache_path) = automation_cache_path() {
+            if cache_path.exists() {
+                log::debug!("automation: persistent cache exists, running probe to verify");
+                match quick_automation_probe(1500) {
+                    Some(true) => {
+                        AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+                        log::debug!("automation: probe confirmed grant (cache valid)");
+                        return PermissionState::Granted;
+                    }
+                    Some(false) => {
+                        clear_automation_cache();
+                        log::debug!("automation: probe denied, cleared stale cache");
+                        return PermissionState::Denied;
+                    }
+                    None => {
+                        // Probe timed out (cold start) — trust the persistent cache
+                        AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+                        log::debug!("automation: probe timed out, trusting persistent cache");
+                        return PermissionState::Granted;
+                    }
+                }
+            }
+        }
+    }
+
+    // No cache — try a quick osascript probe
+    if !AUTOMATION_KNOWN_GRANTED.load(Ordering::Relaxed) {
+        if quick_automation_probe(1500) == Some(true) {
             AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+            write_automation_cache();
+            log::debug!("automation: probe discovered grant (no prior cache)");
             return PermissionState::Granted;
         }
     }
@@ -121,10 +187,9 @@ pub fn check_automation_passive() -> PermissionState {
     }
 }
 
-/// Quick, non-interactive probe: spawns osascript with a short timeout.
-/// If Automation is already granted, it completes instantly with no dialog.
-/// If not granted, kill it before the dialog can appear.
-fn quick_automation_probe() -> bool {
+/// Quick, non-interactive probe: spawns osascript with a configurable timeout.
+/// Returns `Some(true)` if granted, `Some(false)` if denied, `None` if timed out.
+fn quick_automation_probe(timeout_ms: u64) -> Option<bool> {
     let mut child = match Command::new("osascript")
         .args(["-e", "tell application \"System Events\" to return name of first process"])
         .stdout(std::process::Stdio::null())
@@ -132,23 +197,22 @@ fn quick_automation_probe() -> bool {
         .spawn()
     {
         Ok(c) => c,
-        Err(_) => return false,
+        Err(_) => return Some(false),
     };
 
-    // 800ms — enough for a pre-granted call to complete, short enough to kill before dialog
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) => return Some(status.success()),
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return false;
+                    return None;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            Err(_) => return false,
+            Err(_) => return Some(false),
         }
     }
 }
@@ -177,6 +241,7 @@ pub fn trigger_automation_permission() -> bool {
                 let granted = status.success();
                 if granted {
                     AUTOMATION_KNOWN_GRANTED.store(true, Ordering::Relaxed);
+                    write_automation_cache();
                 }
                 return granted;
             }
@@ -222,9 +287,22 @@ pub fn has_notification_permission(bundle_id: &str) -> bool {
     false
 }
 
-/// Check if the app has App Management permission using POSIX access() check.
-/// Does NOT trigger any macOS permission dialog — just tests write access to /Applications.
+/// Check if the app has App Management permission by testing a TCC-enforced write
+/// inside a system-installed app bundle. POSIX `access()` is insufficient because
+/// admin users always have write access to `/Applications` — TCC enforcement only
+/// applies to modifications *inside* app bundles owned by other processes.
 pub fn has_app_management() -> bool {
-    let path = CString::new("/Applications").unwrap();
-    unsafe { libc::access(path.as_ptr(), libc::W_OK) == 0 }
+    let test_path = Path::new("/Applications/Safari.app/Contents/.macplus_probe");
+    let parent = match test_path.parent() {
+        Some(p) if p.exists() => p,
+        _ => return false,
+    };
+    let _ = parent; // silence unused warning — we only need the exists() check
+    match std::fs::write(test_path, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(test_path);
+            true
+        }
+        Err(_) => false,
+    }
 }
