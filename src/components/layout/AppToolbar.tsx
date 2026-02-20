@@ -30,14 +30,16 @@ export default function AppToolbar({ updateCount = 0, className }: AppToolbarPro
 
   return (
     <div
-      data-tauri-drag-region
       className={cn(
         "flex h-[44px] shrink-0 items-center bg-background/80 backdrop-blur-xl",
         className,
       )}
     >
       {/* Brand */}
-      <div className="flex items-center gap-1.5 pl-4 select-none">
+      <div
+        className="flex items-center gap-1.5 pl-4 self-stretch select-none"
+        data-tauri-drag-region
+      >
         <MacPlusLogo size={18} />
         <span className="text-[13px] font-semibold tracking-tight text-foreground">macPlus</span>
       </div>
@@ -82,7 +84,7 @@ export default function AppToolbar({ updateCount = 0, className }: AppToolbarPro
       </div>
 
       {/* Spacer — primary drag target */}
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="flex-1 self-stretch" data-tauri-drag-region />
 
       {/* Utility buttons */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">

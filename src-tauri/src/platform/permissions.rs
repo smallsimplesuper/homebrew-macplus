@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Three-state permission result for UI display.
@@ -52,22 +52,17 @@ fn clear_automation_cache() {
     }
 }
 
-/// Check if the app has Full Disk Access by spawning a subprocess that reads a
-/// TCC-protected file. A child process gets a fresh TCC evaluation, bypassing
-/// any per-process access caching in the parent.
+/// Check if the app has Full Disk Access by probing the system TCC database.
+/// If the app can open it, FDA is granted.
 pub fn has_full_disk_access() -> bool {
-    Command::new("/bin/cat")
-        .arg("/Library/Application Support/com.apple.TCC/TCC.db")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    std::fs::File::open("/Library/Application Support/com.apple.TCC/TCC.db").is_ok()
 }
 
 /// Passively check Automation (Apple Events) permission by reading the user TCC database.
 /// Does NOT trigger any macOS permission dialog.
 pub fn check_automation_passive() -> PermissionState {
+    // Automation uses a specialised TCC query with indirect_object_identifier,
+    // so we query manually instead of using the generic query_tcc_grant helper.
     let db_path = match dirs::home_dir() {
         Some(h) => h.join("Library/Application Support/com.apple.TCC/TCC.db"),
         None => {
@@ -89,8 +84,8 @@ pub fn check_automation_passive() -> PermissionState {
         };
     }
 
-    // Open read-only with SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX
-    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = match rusqlite::Connection::open_with_flags(&db_path, flags) {
         Ok(c) => c,
         Err(e) => {
@@ -294,24 +289,18 @@ pub fn has_notification_permission(bundle_id: &str) -> bool {
     false
 }
 
-/// Check if the app has App Management permission by spawning a subprocess that
-/// writes inside a system-installed app bundle. A child process gets a fresh TCC
-/// evaluation, bypassing any per-process access caching in the parent.
+/// Check if the app has App Management permission by probing a system app bundle.
+/// If the app can create a file inside Safari.app, App Management is granted.
 pub fn has_app_management() -> bool {
-    let test_path = "/Applications/Safari.app/Contents/.macplus_probe";
+    let probe = Path::new("/Applications/Safari.app/Contents/.macplus_probe");
     if !Path::new("/Applications/Safari.app/Contents").exists() {
         return false;
     }
-    let status = Command::new("/usr/bin/touch")
-        .arg(test_path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            let _ = std::fs::remove_file(test_path);
+    match std::fs::File::create(probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(probe);
             true
         }
-        _ => false,
+        Err(_) => false,
     }
 }
