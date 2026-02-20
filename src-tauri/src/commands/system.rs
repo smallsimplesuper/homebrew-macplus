@@ -52,12 +52,16 @@ pub struct PermissionsStatus {
 
 #[tauri::command]
 pub async fn get_permissions_status() -> Result<PermissionsStatus, AppError> {
-    let automation_state = tokio::task::spawn_blocking(permissions::check_automation_passive)
-        .await
-        .unwrap_or(permissions::PermissionState::Unknown);
-    let full_disk_access = permissions::has_full_disk_access();
-    let app_management = permissions::has_app_management();
-    let notifications = permissions::has_notification_permission("com.macplus.app");
+    let (automation_state, full_disk_access, app_management, notifications) = tokio::join!(
+        tokio::task::spawn_blocking(permissions::check_automation_passive),
+        tokio::task::spawn_blocking(permissions::has_full_disk_access),
+        tokio::task::spawn_blocking(permissions::has_app_management),
+        tokio::task::spawn_blocking(|| permissions::has_notification_permission("com.macplus.app")),
+    );
+    let automation_state = automation_state.unwrap_or(permissions::PermissionState::Unknown);
+    let full_disk_access = full_disk_access.unwrap_or(false);
+    let app_management = app_management.unwrap_or(false);
+    let notifications = notifications.unwrap_or(false);
 
     Ok(PermissionsStatus {
         automation: automation_state.is_granted(),
@@ -72,12 +76,16 @@ pub async fn get_permissions_status() -> Result<PermissionsStatus, AppError> {
 /// no Homebrew detection. Used by the PermissionBanner on mount and visibility changes.
 #[tauri::command]
 pub async fn get_permissions_passive() -> Result<PermissionsStatus, AppError> {
-    let automation_state = tokio::task::spawn_blocking(permissions::check_automation_passive)
-        .await
-        .unwrap_or(permissions::PermissionState::Unknown);
-    let full_disk_access = permissions::has_full_disk_access();
-    let app_management = permissions::has_app_management();
-    let notifications = permissions::has_notification_permission("com.macplus.app");
+    let (automation_state, full_disk_access, app_management, notifications) = tokio::join!(
+        tokio::task::spawn_blocking(permissions::check_automation_passive),
+        tokio::task::spawn_blocking(permissions::has_full_disk_access),
+        tokio::task::spawn_blocking(permissions::has_app_management),
+        tokio::task::spawn_blocking(|| permissions::has_notification_permission("com.macplus.app")),
+    );
+    let automation_state = automation_state.unwrap_or(permissions::PermissionState::Unknown);
+    let full_disk_access = full_disk_access.unwrap_or(false);
+    let app_management = app_management.unwrap_or(false);
+    let notifications = notifications.unwrap_or(false);
 
     Ok(PermissionsStatus {
         automation: automation_state.is_granted(),
@@ -238,10 +246,10 @@ pub async fn check_setup_status(
             tokio::task::spawn_blocking(permissions::check_automation_passive),
             // Xcode CLT (blocking shell call)
             tokio::task::spawn_blocking(utils::is_xcode_clt_installed),
-            // Full Disk Access (fast file check)
-            async { permissions::has_full_disk_access() },
-            // App Management (fast POSIX check)
-            async { permissions::has_app_management() },
+            // Full Disk Access (subprocess check)
+            tokio::task::spawn_blocking(permissions::has_full_disk_access),
+            // App Management (subprocess check)
+            tokio::task::spawn_blocking(permissions::has_app_management),
             // Notification permission (blocking plist check)
             tokio::task::spawn_blocking(|| {
                 permissions::has_notification_permission("com.macplus.app")
@@ -253,6 +261,8 @@ pub async fn check_setup_status(
         let (brew_installed, brew_version, brew_path_str) = brew_result.unwrap_or((false, None, None));
         let automation_state = automation_state.unwrap_or(permissions::PermissionState::Unknown);
         let xcode_clt = xcode.unwrap_or(false);
+        let fda = fda.unwrap_or(false);
+        let app_mgmt = app_mgmt.unwrap_or(false);
         let notifications = notif.unwrap_or(false);
 
         let ap_installed = askpass::is_askpass_installed();

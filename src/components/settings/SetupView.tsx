@@ -15,6 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { usePermissionRefresh } from "@/hooks/usePermissionRefresh";
 import {
   checkSetupStatus,
   ensureAskpassHelper,
@@ -126,19 +127,10 @@ export function SetupView() {
     }
   }, []);
 
+  const { startPolling } = usePermissionRefresh(refresh);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
-
-  // Re-check when user returns from System Settings
-  useEffect(() => {
-    const handler = () => {
-      if (document.visibilityState === "visible") {
-        refresh();
-      }
-    };
-    document.addEventListener("visibilitychange", handler);
-    return () => document.removeEventListener("visibilitychange", handler);
   }, [refresh]);
 
   const handleInstallHomebrew = () => {
@@ -231,7 +223,10 @@ export function SetupView() {
             }
             action={
               <ActionButton
-                onClick={() => openSystemPreferences("app_management")}
+                onClick={() => {
+                  openSystemPreferences("app_management");
+                  if (!status.permissions.appManagement) startPolling();
+                }}
                 icon={<ExternalLink className="h-3 w-3" />}
                 label={status.permissions.appManagement ? "Manage" : "Grant"}
                 variant={status.permissions.appManagement ? "muted" : "primary"}
@@ -250,7 +245,10 @@ export function SetupView() {
             }
             action={
               <ActionButton
-                onClick={() => openSystemPreferences("automation")}
+                onClick={() => {
+                  openSystemPreferences("automation");
+                  if (!status.permissions.automation) startPolling();
+                }}
                 icon={<ExternalLink className="h-3 w-3" />}
                 label={status.permissions.automation ? "Manage" : "Grant"}
                 variant={status.permissions.automation ? "muted" : "primary"}
@@ -265,7 +263,10 @@ export function SetupView() {
             }
             action={
               <ActionButton
-                onClick={() => openSystemPreferences("notifications")}
+                onClick={() => {
+                  openSystemPreferences("notifications");
+                  if (!status.permissions.notifications) startPolling();
+                }}
                 icon={
                   status.permissions.notifications ? (
                     <ExternalLink className="h-3 w-3" />
@@ -288,7 +289,10 @@ export function SetupView() {
             }
             action={
               <ActionButton
-                onClick={() => openSystemPreferences("full_disk_access")}
+                onClick={() => {
+                  openSystemPreferences("full_disk_access");
+                  if (!status.permissions.fullDiskAccess) startPolling();
+                }}
                 icon={<ExternalLink className="h-3 w-3" />}
                 label={status.permissions.fullDiskAccess ? "Manage" : "Grant"}
                 variant={status.permissions.fullDiskAccess ? "muted" : "primary"}

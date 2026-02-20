@@ -1,14 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-  ArrowDownCircle,
-  Clock,
-  EyeOff,
-  LayoutGrid,
-  Minus,
-  Search,
-  Settings,
-  X,
-} from "lucide-react";
+import { ArrowDownCircle, Clock, EyeOff, LayoutGrid, Search, Settings, X } from "lucide-react";
 import { motion } from "motion/react";
 import MacPlusLogo from "@/components/shared/MacPlusLogo";
 import { springs } from "@/lib/animations";
@@ -148,23 +139,7 @@ export default function AppToolbar({ updateCount = 0, className }: AppToolbarPro
           <Settings className="h-3.5 w-3.5" />
         </motion.button>
 
-        {/* Divider */}
-        <div className="mx-1 h-4 w-px bg-border/50" />
-
-        {/* Minimize */}
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          transition={springs.micro}
-          onClick={() => {
-            getCurrentWindow().minimize().catch(console.error);
-          }}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-muted-foreground"
-          aria-label="Minimize"
-        >
-          <Minus className="h-3.5 w-3.5" />
-        </motion.button>
-
-        {/* Close */}
+        {/* Close (hides to tray) */}
         <motion.button
           whileTap={{ scale: 0.9 }}
           transition={springs.micro}

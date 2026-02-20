@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Three-state permission result for UI display.
@@ -52,10 +52,17 @@ fn clear_automation_cache() {
     }
 }
 
-/// Check if the app has Full Disk Access by attempting to open a TCC-protected file.
-/// `File::open()` acquires a read fd which triggers TCC enforcement, unlike `stat()`.
+/// Check if the app has Full Disk Access by spawning a subprocess that reads a
+/// TCC-protected file. A child process gets a fresh TCC evaluation, bypassing
+/// any per-process access caching in the parent.
 pub fn has_full_disk_access() -> bool {
-    std::fs::File::open("/Library/Application Support/com.apple.TCC/TCC.db").is_ok()
+    Command::new("/bin/cat")
+        .arg("/Library/Application Support/com.apple.TCC/TCC.db")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Passively check Automation (Apple Events) permission by reading the user TCC database.
@@ -287,22 +294,24 @@ pub fn has_notification_permission(bundle_id: &str) -> bool {
     false
 }
 
-/// Check if the app has App Management permission by testing a TCC-enforced write
-/// inside a system-installed app bundle. POSIX `access()` is insufficient because
-/// admin users always have write access to `/Applications` — TCC enforcement only
-/// applies to modifications *inside* app bundles owned by other processes.
+/// Check if the app has App Management permission by spawning a subprocess that
+/// writes inside a system-installed app bundle. A child process gets a fresh TCC
+/// evaluation, bypassing any per-process access caching in the parent.
 pub fn has_app_management() -> bool {
-    let test_path = Path::new("/Applications/Safari.app/Contents/.macplus_probe");
-    let parent = match test_path.parent() {
-        Some(p) if p.exists() => p,
-        _ => return false,
-    };
-    let _ = parent; // silence unused warning — we only need the exists() check
-    match std::fs::write(test_path, b"") {
-        Ok(()) => {
+    let test_path = "/Applications/Safari.app/Contents/.macplus_probe";
+    if !Path::new("/Applications/Safari.app/Contents").exists() {
+        return false;
+    }
+    let status = Command::new("/usr/bin/touch")
+        .arg(test_path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => {
             let _ = std::fs::remove_file(test_path);
             true
         }
-        Err(_) => false,
+        _ => false,
     }
 }

@@ -1,5 +1,6 @@
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePermissionRefresh } from "@/hooks/usePermissionRefresh";
 import {
   getPermissionsPassive,
   openSystemPreferences,
@@ -47,8 +48,6 @@ export function PermissionBanner() {
       return false;
     }
   });
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
-
   const updateAllGranted = useCallback((status: PermissionsStatus) => {
     const allOk =
       status.appManagement && status.automation && status.notifications && status.fullDiskAccess;
@@ -85,25 +84,24 @@ export function PermissionBanner() {
       .catch(() => {});
   }, [updateAllGranted]);
 
+  const { startPolling, stopPolling } = usePermissionRefresh(refresh);
+
   // Initial check on mount
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Re-check on visibilitychange with 5s debounce (user returns from System Settings)
+  // Stop polling once all permissions are granted
   useEffect(() => {
-    const handler = () => {
-      if (document.visibilityState === "visible") {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(refresh, 5000);
-      }
-    };
-    document.addEventListener("visibilitychange", handler);
-    return () => {
-      document.removeEventListener("visibilitychange", handler);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [refresh]);
+    if (
+      perms?.appManagement &&
+      perms?.automation &&
+      perms?.notifications &&
+      perms?.fullDiskAccess
+    ) {
+      stopPolling();
+    }
+  }, [perms, stopPolling]);
 
   // If localStorage says all granted and we haven't loaded fresh data yet, hide banner
   if (!perms && cachedGranted) return null;
@@ -165,6 +163,7 @@ export function PermissionBanner() {
       }
     } else if (kind === "appManagement") {
       await openSystemPreferences("app_management");
+      startPolling();
     } else if (kind === "notifications") {
       try {
         const result = await requestPermission();
@@ -187,8 +186,10 @@ export function PermissionBanner() {
         // Plugin unavailable or already asked — fall back to System Settings
       }
       await openSystemPreferences("notifications");
+      startPolling();
     } else if (kind === "fullDiskAccess") {
       await openSystemPreferences("full_disk_access");
+      startPolling();
     }
   };
 

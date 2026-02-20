@@ -136,6 +136,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Tray-only mode: remove from Dock and Cmd+Tab switcher
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // Initialize database
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
