@@ -15,6 +15,7 @@ use crate::platform::icon_extractor;
 use crate::updaters::homebrew_api::{self, HomebrewCaskIndex};
 use crate::updaters::homebrew_cask::{fetch_brew_outdated, fetch_brew_outdated_formulae};
 use crate::updaters::{AppCheckContext, BrewOutdatedCask, BrewOutdatedFormula, UpdateDispatcher};
+use crate::utils::brew::{brew_command, brew_path};
 use crate::utils::{is_browser_extension, is_xcode_clt_installed, AppResult};
 
 /// Load the check interval (in minutes) from settings for use at startup.
@@ -302,6 +303,28 @@ pub async fn run_update_check(
             current_app: Some("Fetching Homebrew data...".to_string()),
         },
     );
+
+    // Refresh the local Homebrew index so `brew outdated` sees the latest versions
+    if let Some(brew) = brew_path() {
+        let _ = app_handle.emit(
+            "update-check-progress",
+            crate::models::UpdateCheckProgress {
+                checked: 0,
+                total,
+                current_app: Some("Updating Homebrew index...".to_string()),
+            },
+        );
+        let brew = brew.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let output = brew_command(&brew).arg("update").output();
+            match output {
+                Ok(o) if o.status.success() => log::info!("brew update succeeded"),
+                Ok(o) => log::warn!("brew update failed: {}", String::from_utf8_lossy(&o.stderr)),
+                Err(e) => log::warn!("Failed to run brew update: {}", e),
+            }
+        })
+        .await;
+    }
 
     // Pre-compute brew outdated, formulae, and cask index concurrently
     let http_for_index = http_client.clone();
@@ -716,6 +739,40 @@ pub fn start_periodic_checks(
                 );
                 interval_mins = new_interval;
             }
+        }
+    });
+}
+
+/// Lightweight poller that checks only for macPlus self-updates every 5 minutes.
+/// Uses GitHub ETag caching so repeat calls are cheap 304s.
+pub fn start_self_update_poller(
+    app_handle: AppHandle,
+    http_client: reqwest::Client,
+) {
+    tauri::async_runtime::spawn(async move {
+        // Short initial delay — the frontend already calls checkSelfUpdate() on mount,
+        // so wait before the first background poll to avoid a duplicate API call.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        loop {
+            crate::updaters::github_releases::reset_rate_limit_flag();
+
+            if let Some(info) =
+                crate::commands::self_update::check_self_update_inner(&http_client).await
+            {
+                log::info!(
+                    "Self-update poller: v{} available (current: v{})",
+                    info.available_version, info.current_version
+                );
+                let _ = app_handle.emit("self-update-available", &info);
+            }
+
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                crate::updaters::github_releases::save_etag_cache(),
+            ).await;
+
+            tokio::time::sleep(Duration::from_secs(5 * 60)).await;
         }
     });
 }

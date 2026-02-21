@@ -292,8 +292,14 @@ pub fn run() {
             scheduler::start_periodic_checks(
                 app.handle().clone(),
                 db,
-                client,
+                client.clone(),
                 check_interval,
+            );
+
+            // Lightweight self-update poller — checks GitHub every 5 min
+            scheduler::start_self_update_poller(
+                app.handle().clone(),
+                client,
             );
 
             Ok(())
