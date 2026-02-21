@@ -38,6 +38,21 @@ impl Database {
             log::info!("Purged {} stale update records (available == installed)", purged);
         }
 
+        // Remove any com.apple.* system apps that slipped into the database
+        let apple_purged: usize = match db.conn.execute(
+            "DELETE FROM apps WHERE bundle_id LIKE 'com.apple.%'",
+            [],
+        ) {
+            Ok(count) => count,
+            Err(e) => {
+                log::warn!("Failed to purge com.apple.* apps at startup: {}", e);
+                0
+            }
+        };
+        if apple_purged > 0 {
+            log::info!("Purged {} com.apple.* system apps from database", apple_purged);
+        }
+
         Ok(db)
     }
 }

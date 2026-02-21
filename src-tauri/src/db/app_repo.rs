@@ -68,6 +68,7 @@ impl Database {
                  WHERE au1.dismissed_at IS NULL
              ) au ON au.app_id = a.id
                   AND (a.installed_version IS NULL OR au.available_version != a.installed_version)
+             WHERE a.bundle_id NOT LIKE 'com.apple.%'
              ORDER BY a.display_name COLLATE NOCASE",
         )?;
 
