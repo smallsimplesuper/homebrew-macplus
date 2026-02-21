@@ -43,6 +43,7 @@ pub async fn run_full_scan(
     db: &Arc<Mutex<Database>>,
 ) -> AppResult<usize> {
     let start = std::time::Instant::now();
+    let scan_started_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let (scan_locations, scan_depth) = {
         let db_guard = db.lock().await;
@@ -86,6 +87,16 @@ pub async fn run_full_scan(
             let _ = db_guard.upsert_app(app);
         }
         let _ = db_guard.conn.execute_batch("COMMIT");
+
+        // Remove stale apps that were not re-detected and no longer exist on disk
+        match db_guard.delete_stale_apps(&scan_started_at) {
+            Ok((count, bundle_ids)) => {
+                if count > 0 {
+                    log::info!("Removed {} stale apps: {:?}", count, bundle_ids);
+                }
+            }
+            Err(e) => log::warn!("Stale app cleanup failed: {}", e),
+        }
 
         // Emit progress: extracting icons phase
         let _ = app_handle.emit(
@@ -351,6 +362,7 @@ pub async fn run_update_check(
     let check_apps: Vec<_> = apps
         .iter()
         .filter(|app| !app.is_ignored)
+        .filter(|app| !app.bundle_id.starts_with("com.apple."))
         .collect();
 
     let updated_app_ids: Arc<Mutex<std::collections::HashSet<i64>>> =

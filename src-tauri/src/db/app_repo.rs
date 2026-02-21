@@ -284,6 +284,38 @@ impl Database {
         Ok(())
     }
 
+    /// Remove apps that were not re-detected during the latest scan and no longer exist on disk.
+    /// Skips ignored apps and apps on external volumes (which may be temporarily unmounted).
+    /// Returns (deleted_count, deleted_bundle_ids).
+    pub fn delete_stale_apps(&self, scan_started_at: &str) -> AppResult<(usize, Vec<String>)> {
+        let mut stmt = self.conn.prepare(
+            "SELECT bundle_id, app_path FROM apps WHERE last_seen_at < ?1 AND is_ignored = 0",
+        )?;
+        let candidates: Vec<(String, String)> = stmt
+            .query_map([scan_started_at], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut deleted_ids = Vec::new();
+        for (bundle_id, app_path) in &candidates {
+            if app_path.starts_with("/Volumes/") {
+                continue;
+            }
+            if !app_path.is_empty() && std::path::Path::new(app_path).exists() {
+                continue;
+            }
+            self.conn.execute(
+                "DELETE FROM apps WHERE bundle_id = ?1",
+                [bundle_id],
+            )?;
+            deleted_ids.push(bundle_id.clone());
+        }
+
+        Ok((deleted_ids.len(), deleted_ids))
+    }
+
     /// Store or update the SHA-256 for a cask token.
     pub fn set_cask_sha(&self, cask_token: &str, sha256: &str) -> AppResult<()> {
         self.conn.execute(
