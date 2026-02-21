@@ -18,7 +18,6 @@ import { MenuBarSummary } from "@/components/menubar/MenuBarSummary";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { CommandPalette } from "@/components/shared/CommandPalette";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
-import { PermissionBanner } from "@/components/shared/PermissionBanner";
 import { SelfUpdateBanner } from "@/components/shared/SelfUpdateBanner";
 import { UninstallDialog } from "@/components/shared/UninstallDialog";
 import { UpdateHistoryView } from "@/components/updates/UpdateHistoryView";
@@ -120,7 +119,6 @@ function DesktopApp() {
       updateCount={updateCount}
       ignoredCount={ignoredCount}
     >
-      <PermissionBanner />
       <SelfUpdateBanner />
       <div className="flex flex-1 overflow-hidden">
         <AnimatePresence mode="wait">

@@ -18,7 +18,6 @@ import { ReleaseNotesContent } from "@/components/app-detail/ReleaseNotesSection
 import { AppIcon } from "@/components/app-list/AppIcon";
 import { InfoPopover } from "@/components/shared/InfoPopover";
 import { RelaunchButton, useCrawlingPercent } from "@/components/shared/InlineUpdateProgress";
-import { usePermissionsGranted } from "@/components/shared/PermissionBanner";
 import { useApps, useFullScan, useToggleIgnored } from "@/hooks/useApps";
 import { useCheckAllUpdates } from "@/hooks/useAppUpdates";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
@@ -436,7 +435,6 @@ export function UpdatesOverview() {
   const executeUpdate = useExecuteUpdate();
   const executeBulk = useExecuteBulkUpdate();
   const hasAnyProgress = useUpdateProgressStore((s) => Object.keys(s.progress).length > 0);
-  const allPermissionsGranted = usePermissionsGranted();
 
   const updatableApps = apps?.filter((app) => app.hasUpdate && !app.isIgnored) ?? [];
   const updateCount = updatableApps.length;
@@ -517,8 +515,7 @@ export function UpdatesOverview() {
           <button
             type="button"
             onClick={handleCheckNow}
-            disabled={!allPermissionsGranted || fullScan.isPending || checkAll.isPending}
-            title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
+            disabled={fullScan.isPending || checkAll.isPending}
             className={cn(
               "flex items-center gap-1.5 rounded-lg",
               "border border-border bg-background px-3 py-1.5",
@@ -539,8 +536,7 @@ export function UpdatesOverview() {
             <button
               type="button"
               onClick={handleUpdateAll}
-              disabled={!allPermissionsGranted || executeBulk.isPending || hasAnyProgress}
-              title={!allPermissionsGranted ? "Grant permissions above to enable" : undefined}
+              disabled={executeBulk.isPending || hasAnyProgress}
               className={cn(
                 "flex items-center gap-1.5 rounded-lg",
                 "bg-primary px-3 py-1.5",

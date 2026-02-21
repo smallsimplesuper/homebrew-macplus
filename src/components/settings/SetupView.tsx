@@ -1,25 +1,19 @@
-import { isPermissionGranted } from "@tauri-apps/plugin-notification";
 import {
   Beer,
-  Bell,
   CheckCircle2,
-  ExternalLink,
   FolderOpen,
   Globe,
   Info,
   KeyRound,
   RefreshCw,
-  ShieldCheck,
   Terminal,
   Wrench,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { usePermissionRefresh } from "@/hooks/usePermissionRefresh";
 import {
   checkSetupStatus,
   ensureAskpassHelper,
-  openSystemPreferences,
   openTerminalWithCommand,
   type SetupStatus,
 } from "@/lib/tauri-commands";
@@ -113,12 +107,6 @@ export function SetupView() {
     setError(false);
     try {
       const result = await checkSetupStatus();
-      try {
-        const notifGranted = await isPermissionGranted();
-        result.permissions.notifications = notifGranted;
-      } catch {
-        // Fall back to plist-based check
-      }
       setStatus(result);
     } catch {
       setError(true);
@@ -126,8 +114,6 @@ export function SetupView() {
       setLoading(false);
     }
   }, []);
-
-  const { startPolling } = usePermissionRefresh(refresh);
 
   useEffect(() => {
     refresh();
@@ -206,103 +192,7 @@ export function SetupView() {
         </button>
       </div>
 
-      {/* Section 1 — Permissions */}
-      <div>
-        <SectionHeader
-          icon={<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />}
-          title="Permissions"
-        />
-        <div className="space-y-1">
-          <SetupRow
-            ok={status.permissions.appManagement}
-            label="App Management"
-            description={
-              status.permissions.appManagement
-                ? "Granted"
-                : "Required to install and update apps in /Applications"
-            }
-            action={
-              <ActionButton
-                onClick={() => {
-                  openSystemPreferences("app_management");
-                  if (!status.permissions.appManagement) startPolling();
-                }}
-                icon={<ExternalLink className="h-3 w-3" />}
-                label={status.permissions.appManagement ? "Manage" : "Grant"}
-                variant={status.permissions.appManagement ? "muted" : "primary"}
-              />
-            }
-          />
-          <SetupRow
-            ok={status.permissions.automation}
-            label="Automation"
-            description={
-              status.permissions.automationState === "granted"
-                ? "Granted"
-                : status.permissions.automationState === "denied"
-                  ? "Denied — open System Settings to grant"
-                  : "Not yet requested — use the banner above to enable"
-            }
-            action={
-              <ActionButton
-                onClick={() => {
-                  openSystemPreferences("automation");
-                  if (!status.permissions.automation) startPolling();
-                }}
-                icon={<ExternalLink className="h-3 w-3" />}
-                label={status.permissions.automation ? "Manage" : "Grant"}
-                variant={status.permissions.automation ? "muted" : "primary"}
-              />
-            }
-          />
-          <SetupRow
-            ok={status.permissions.notifications}
-            label="Notifications"
-            description={
-              status.permissions.notifications ? "Granted" : "Required for background update alerts"
-            }
-            action={
-              <ActionButton
-                onClick={() => {
-                  openSystemPreferences("notifications");
-                  if (!status.permissions.notifications) startPolling();
-                }}
-                icon={
-                  status.permissions.notifications ? (
-                    <ExternalLink className="h-3 w-3" />
-                  ) : (
-                    <Bell className="h-3 w-3" />
-                  )
-                }
-                label={status.permissions.notifications ? "Manage" : "Grant"}
-                variant={status.permissions.notifications ? "muted" : "primary"}
-              />
-            }
-          />
-          <SetupRow
-            ok={status.permissions.fullDiskAccess}
-            label="Full Disk Access"
-            description={
-              status.permissions.fullDiskAccess
-                ? "Granted"
-                : "Required for scanning protected directories"
-            }
-            action={
-              <ActionButton
-                onClick={() => {
-                  openSystemPreferences("full_disk_access");
-                  if (!status.permissions.fullDiskAccess) startPolling();
-                }}
-                icon={<ExternalLink className="h-3 w-3" />}
-                label={status.permissions.fullDiskAccess ? "Manage" : "Grant"}
-                variant={status.permissions.fullDiskAccess ? "muted" : "primary"}
-              />
-            }
-          />
-        </div>
-      </div>
-
-      {/* Section 2 — Connectivity */}
+      {/* Section 1 — Connectivity */}
       <div>
         <SectionHeader
           icon={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -335,7 +225,7 @@ export function SetupView() {
         </div>
       </div>
 
-      {/* Section 3 — Tools */}
+      {/* Section 2 — Tools */}
       <div>
         <SectionHeader
           icon={<Beer className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -410,7 +300,7 @@ export function SetupView() {
         </div>
       </div>
 
-      {/* Section 4 — App Info */}
+      {/* Section 3 — App Info */}
       <div>
         <SectionHeader
           icon={<Info className="h-3.5 w-3.5 text-muted-foreground" />}

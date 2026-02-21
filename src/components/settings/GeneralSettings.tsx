@@ -87,7 +87,7 @@ export function GeneralSettings() {
           options={CHECK_INTERVALS}
         />
       </div>
-      {/* Permissions & Setup link */}
+      {/* Setup link */}
       <button
         type="button"
         onClick={() => {
@@ -100,10 +100,8 @@ export function GeneralSettings() {
         )}
       >
         <div>
-          <p className="text-sm font-medium text-foreground">Permissions & Setup</p>
-          <p className="text-xs text-muted-foreground">
-            Homebrew, permissions, and admin helper configuration
-          </p>
+          <p className="text-sm font-medium text-foreground">Setup</p>
+          <p className="text-xs text-muted-foreground">Homebrew and admin helper configuration</p>
         </div>
         <ChevronRight className="h-4 w-4 text-muted-foreground" />
       </button>

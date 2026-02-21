@@ -19,7 +19,7 @@ const tabs: { id: SettingsTab; label: string }[] = [
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
-  // Listen for cross-component navigation (e.g. GeneralSettings "Permissions & Setup" link)
+  // Listen for cross-component navigation (e.g. GeneralSettings "Setup" link)
   useEffect(() => {
     const handler = (e: Event) => {
       const tab = (e as CustomEvent).detail as SettingsTab;
